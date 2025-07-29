@@ -7,6 +7,7 @@ from typing import List
 
 from app.models.requests import QueryRequest, QueryResponse, HealthResponse
 from app.services.document_service import DocumentService
+from app.services.clause_segmentation import ClauseSegmentationService
 from app.core.security import verify_token
 from app.core.config import settings
 
@@ -52,13 +53,26 @@ async def process_queries(
         print(f"  - Text length: {len(document_content.text)} characters")
         print(f"  - Title: {document_content.metadata.get('title', 'N/A')}")
         
-        # Step 2: Process questions
+        # Step 2: Segment document into clauses
+        print("🔪 Starting clause segmentation...")
+        segmentation_service = ClauseSegmentationService()
+        segmentation_result = segmentation_service.segment_document(document_content)
+        
+        if segmentation_result.errors:
+            print(f"⚠️  Segmentation errors: {segmentation_result.errors}")
+        
+        print(f"📝 Clause segmentation completed:")
+        print(f"  - Total clauses: {len(segmentation_result.clauses)}")
+        print(f"  - Processing time: {segmentation_result.processing_time_seconds}s")
+        print(f"  - Clause types: {segmentation_result.clause_types_summary}")
+        
+        # Step 3: Process questions
         print(f"Processing {len(request.questions)} questions")
         
-        # TODO: Implement actual query processing pipeline
-        # For now, return placeholder answers
+        # TODO: Implement actual query processing pipeline with embeddings
+        # For now, return enhanced placeholder answers with clause info
         placeholder_answers = [
-            f"Placeholder answer for question {i+1}: {question[:50]}..."
+            f"[Based on {len(segmentation_result.clauses)} clauses] Placeholder answer for question {i+1}: {question[:50]}..."
             for i, question in enumerate(request.questions)
         ]
         

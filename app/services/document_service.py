@@ -106,7 +106,7 @@ class DocumentService:
             print(f"   - Title: {metadata.get('title', 'N/A')}")
             
             return DocumentContent(
-                text=full_text.strip(),
+                text=full_text.strip(), # parsed text
                 pages=page_count,
                 metadata=metadata
             )
