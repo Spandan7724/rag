@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # Document Processing
     max_file_size: int = 50 * 1024 * 1024  # 50MB
     temp_dir: Optional[str] = None
+    save_parsed_text: bool = True  # Save parsed text to files for validation
+    parsed_text_dir: str = "parsed_documents"  # Directory to save parsed text
     
     # Request Timeouts
     download_timeout: int = 60  # seconds
