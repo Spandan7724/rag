@@ -43,17 +43,50 @@ class ClauseClassifier:
         "cap", "restricted to", "subject to limit"
     }
     
-    # Section-based classification
+    # Enhanced section-based classification with fuzzy matching
     SECTION_TYPE_MAPPING = {
+        # Definition sections
         "DEFINITIONS": ClauseType.DEFINITION,
+        "DEFINITION": ClauseType.DEFINITION,
+        
+        # Coverage sections  
         "COVERAGE": ClauseType.COVERAGE,
+        "COVER": ClauseType.COVERAGE,
+        "OPERATIVE CLAUSE": ClauseType.COVERAGE,
+        
+        # Benefit sections
         "BENEFITS": ClauseType.BENEFIT,
+        "BENEFIT": ClauseType.BENEFIT,
+        "TABLE OF BENEFITS": ClauseType.BENEFIT,
+        
+        # Exclusion sections (case-insensitive, partial matching)
         "EXCLUSIONS": ClauseType.EXCLUSION,
+        "EXCLUSION": ClauseType.EXCLUSION,
+        "NOT COVERED": ClauseType.EXCLUSION,
+        "ANNEXURE": ClauseType.EXCLUSION,  # Annexure lists are typically exclusions
+        
+        # Condition sections
         "CONDITIONS": ClauseType.CONDITION,
+        "CONDITION": ClauseType.CONDITION,
+        "TERMS": ClauseType.CONDITION,
+        "GENERAL TERMS": ClauseType.CONDITION,
+        "WAITING PERIOD": ClauseType.CONDITION,
+        
+        # Procedure sections
         "CLAIMS": ClauseType.PROCEDURE,
+        "CLAIM PROCEDURE": ClauseType.PROCEDURE,
         "PROCEDURES": ClauseType.PROCEDURE,
+        "PROCEDURE": ClauseType.PROCEDURE,
+        
+        # Limitation sections
         "LIMITATIONS": ClauseType.LIMITATION,
-        "GENERAL": ClauseType.GENERAL
+        "LIMITATION": ClauseType.LIMITATION,
+        
+        # General sections
+        "GENERAL": ClauseType.GENERAL,
+        "PREAMBLE": ClauseType.GENERAL,
+        "GRIEVANCE": ClauseType.GENERAL,
+        "REDRESSAL": ClauseType.GENERAL
     }
     
     @classmethod
@@ -62,10 +95,16 @@ class ClauseClassifier:
         text_lower = text.lower()
         section_upper = section_heading.upper()
         
-        # First, try section-based classification
+        # First, try section-based classification with partial matching
         for section_key, clause_type in cls.SECTION_TYPE_MAPPING.items():
             if section_key in section_upper:
                 return clause_type
+        
+        # Additional context-aware overrides for specific cases
+        if section_upper and "EXCLUSION" in section_upper or "NOT COVERED" in section_upper:
+            return ClauseType.EXCLUSION
+        if section_upper and "BENEFIT" in section_upper or "TABLE" in section_upper:
+            return ClauseType.BENEFIT
         
         # Then, use keyword-based classification
         scores = {}

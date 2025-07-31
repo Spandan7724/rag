@@ -96,12 +96,14 @@ class ClauseSegmentationService:
         page_splits = self.patterns.split_by_pages(text)
         
         for page_num, page_text, start_pos, end_pos in page_splits:
-            # cleaned_text = self.patterns.clean_text(page_text)
+            # CRITICAL FIX: Don't clean text here - preserve line structure for regex matching
+            # The clean_text() function removes newlines needed for section header detection
+            # Individual clause text will be cleaned later when creating the Clause objects
             
             pages.append(PageContent(
                 page_number=page_num,
                 raw_text=page_text,
-                cleaned_text=page_text,
+                cleaned_text=page_text,  # Keep raw text with line breaks for pattern matching
                 char_start=start_pos,
                 char_end=end_pos
             ))

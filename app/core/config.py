@@ -23,6 +23,24 @@ class Settings(BaseSettings):
     save_parsed_text: bool = True  # Save parsed text to files for validation
     parsed_text_dir: str = "parsed_documents"  # Directory to save parsed text
     
+    # Enhanced Document Storage
+    document_storage_root: str = "./documents"  # Root directory for persistent storage
+    enable_ocr_fallback: bool = True  # Enable OCR for scanned pages
+    text_density_threshold: float = 50.0  # Characters per page threshold for OCR trigger
+    store_span_map: bool = False  # Store span mapping data (for debugging/development)
+    
+    # PyMuPDF4LLM Performance
+    parallel_processing_workers: int = 0  # Number of workers for parallel page processing (0 = auto-detect)
+    
+    # Debugging and Logging
+    log_segmented_clauses: bool = True  # Log detailed information about each segmented clause
+    save_clause_details: bool = True  # Save clause details to file for inspection
+    
+    # OCR Configuration
+    tesseract_cmd: Optional[str] = None  # Path to tesseract executable (auto-detect if None)
+    ocr_languages: str = "eng"  # Tesseract languages to use
+    ocr_dpi: int = 300  # DPI for OCR processing
+    
     # Request Timeouts
     download_timeout: int = 60  # seconds
     processing_timeout: int = 300  # seconds
