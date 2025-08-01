@@ -9,3 +9,11 @@ wheels/
 # Virtual environments
 .venv
 .claude/
+
+CLAUDE.md
+info.md
+blob_pdf/
+parsed_documents/
+pdfs/
+vector_store/
+.env

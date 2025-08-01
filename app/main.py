@@ -6,9 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.core.config import settings
+from app.core.directories import ensure_directories
 
 def create_application() -> FastAPI:
     """Create and configure FastAPI application"""
+    
+    # Ensure all required directories exist before starting the application
+    print("Setting up application directories...")
+    ensure_directories()
+    print("All required directories are ready")
     
     app = FastAPI(
         title=settings.app_name,
