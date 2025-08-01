@@ -14,105 +14,11 @@ from app.models.requests import (
 from app.services.document_service import DocumentService
 from app.services.document_storage import DocumentStorageService
 from app.services.enhanced_document_service import EnhancedDocumentService
-from app.services.adaptive_segmentation import AdaptiveSegmentationService
 from app.core.security import verify_token
 from app.core.config import settings
 
 router = APIRouter()
 
-def _log_detailed_clauses(segmentation_result):
-    """Log detailed information about each segmented clause"""
-    if not settings.log_segmented_clauses or not segmentation_result.clauses:
-        return
-    
-    print(f"\n[CLAUSE DETAILS] Segmented {len(segmentation_result.clauses)} clauses:")
-    print("=" * 80)
-    
-    # Console logging (limited for readability)
-    for i, clause in enumerate(segmentation_result.clauses[:50]):  # Limit to first 50 for readability
-        # Truncate text for display
-        text_preview = clause.text[:100] + "..." if len(clause.text) > 100 else clause.text
-        text_preview = text_preview.replace('\n', ' ').replace('\r', ' ')
-        
-        print(f"[{clause.id}] Type: {clause.clause_type.value}")
-        print(f"  Section: {clause.section_heading}")
-        if clause.sub_section:
-            print(f"  Sub-section: {clause.sub_section}")
-        print(f"  Page: {clause.page_number}")
-        print(f"  Length: {len(clause.text)} chars")
-        print(f"  Text: {text_preview}")
-        print(f"  Position: {clause.char_start}-{clause.char_end}")
-        print("-" * 40)
-    
-    if len(segmentation_result.clauses) > 50:
-        print(f"... and {len(segmentation_result.clauses) - 50} more clauses")
-    
-    # Summary by clause type
-    clause_type_counts = {}
-    for clause in segmentation_result.clauses:
-        clause_type = clause.clause_type.value
-        clause_type_counts[clause_type] = clause_type_counts.get(clause_type, 0) + 1
-    
-    print(f"\n[CLAUSE SUMMARY] Breakdown by type:")
-    for clause_type, count in sorted(clause_type_counts.items()):
-        print(f"  {clause_type}: {count} clauses")
-    print("=" * 80)
-    
-    # Optional: Save detailed clause info to file
-    if settings.save_clause_details:
-        _save_clause_details_to_file(segmentation_result)
-
-def _save_clause_details_to_file(segmentation_result):
-    """Save detailed clause information to a file for inspection"""
-    try:
-        import json
-        from datetime import datetime
-        from pathlib import Path
-        
-        # Create logs directory if it doesn't exist
-        logs_dir = Path("clause_logs")
-        logs_dir.mkdir(exist_ok=True)
-        
-        # Generate filename with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = logs_dir / f"clauses_{timestamp}.json"
-        
-        # Prepare clause data for JSON serialization
-        clause_data = {
-            "timestamp": datetime.now().isoformat(),
-            "total_clauses": len(segmentation_result.clauses),
-            "processing_time_seconds": segmentation_result.processing_time_seconds,
-            "pages_processed": segmentation_result.pages_processed,
-            "sections_found": segmentation_result.sections_found,
-            "errors": segmentation_result.errors,
-            "warnings": segmentation_result.warnings,
-            "clauses": []
-        }
-        
-        for clause in segmentation_result.clauses:
-            clause_dict = {
-                "id": clause.id,
-                "type": clause.clause_type.value,
-                "text": clause.text,
-                "section_heading": clause.section_heading,
-                "sub_section": clause.sub_section,
-                "page_number": clause.page_number,
-                "char_start": clause.char_start,
-                "char_end": clause.char_end,
-                "source_type": clause.source_type.value,
-                "created_at": clause.created_at.isoformat() if clause.created_at else None,
-                "metadata": clause.metadata
-            }
-            clause_data["clauses"].append(clause_dict)
-        
-        # Save to file
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(clause_data, f, indent=2, ensure_ascii=False)
-        
-        print(f"[INFO] Detailed clause information saved to: {filename}")
-        
-    except Exception as e:
-        print(f"[ERROR] Failed to save clause details to file: {str(e)}")
 
 # Initialize services
 storage_service = DocumentStorageService()
@@ -246,9 +152,8 @@ async def process_document_enhanced(
     
     This endpoint:
     1. Processes the stored document using enhanced PyMuPDF4LLM extraction
-    2. Segments the document into clauses using adaptive strategies
-    3. Processes the questions against the segmented content
-    4. Returns structured answers with enhanced citations
+    2. Processes the questions against the document content
+    3. Returns structured answers
     """
     try:
         request_start_time = time.time()
@@ -269,36 +174,14 @@ async def process_document_enhanced(
         if hasattr(document_content, 'markdown') and document_content.markdown:
             print(f"  - Markdown length: {len(document_content.markdown)} characters")
         
-        # Step 2: Segment document into clauses using adaptive strategy
-        print("[INFO] Starting adaptive clause segmentation...")
-        segmentation_start = time.time()
-        segmentation_service = AdaptiveSegmentationService()
-        segmentation_result = segmentation_service.segment_document(document_content)
-        segmentation_time = time.time() - segmentation_start
-        
-        if segmentation_result.errors:
-            print(f"[ERROR] Segmentation errors: {segmentation_result.errors}")
-        if segmentation_result.warnings:
-            print(f"[WARNING] Segmentation warnings: {segmentation_result.warnings}")
-        
-        print("[SUCCESS] Clause segmentation completed:")
-        print(f"  - Total clauses: {len(segmentation_result.clauses)}")
-        print(f"  - Segmentation time: {segmentation_time:.3f}s")
-        print(f"  - Strategy processing time: {segmentation_result.processing_time_seconds}s")
-        print(f"  - Clause types: {segmentation_result.clause_types_summary}")
-        print(f"  - Segmentation speed: {len(segmentation_result.clauses) / segmentation_time:.1f} clauses/sec")
-        
-        # Log detailed clause information if enabled
-        _log_detailed_clauses(segmentation_result)
-        
-        # Step 3: Process questions
+        # Step 2: Process questions
         print(f"Processing {len(request.questions)} questions with enhanced extraction")
         question_processing_start = time.time()
         
-        # TODO: Implement actual query processing pipeline with embeddings and span mapping
-        # For now, return enhanced placeholder answers with enhanced extraction info
+        # TODO: Implement actual query processing pipeline
+        # For now, return placeholder answers with document info
         placeholder_answers = [
-            f"[Enhanced PyMuPDF4LLM] Based on {len(segmentation_result.clauses)} clauses from {document_content.processing_method} extraction. Question {i+1}: {question[:50]}..."
+            f"[Enhanced PyMuPDF4LLM] Document processed using {document_content.processing_method} extraction. Question {i+1}: {question[:50]}..."
             for i, question in enumerate(request.questions)
         ]
         
@@ -307,7 +190,6 @@ async def process_document_enhanced(
         
         print(f"[TIMING] Request completed:")
         print(f"  - Document processing: {document_processing_time:.3f}s")
-        print(f"  - Clause segmentation: {segmentation_time:.3f}s") 
         print(f"  - Question processing: {question_processing_time:.3f}s")
         print(f"  - Total request time: {total_request_time:.3f}s")
         
@@ -333,9 +215,8 @@ async def process_queries(
     This endpoint:
     1. Downloads and processes the document using enhanced PyMuPDF4LLM extraction
     2. Extracts text with markdown formatting and span mapping
-    3. Segments the document into clauses using adaptive strategies
-    4. Processes the questions (currently returns placeholders)
-    5. Returns structured answers with enhanced citations
+    3. Processes the questions (currently returns placeholders)
+    4. Returns structured answers
     """
     try:
         request_start_time = time.time()
@@ -357,41 +238,14 @@ async def process_queries(
         if hasattr(document_content, 'markdown') and document_content.markdown:
             print(f"  - Markdown length: {len(document_content.markdown)} characters")
         
-        # Step 2: Segment document into clauses using adaptive strategy
-        print("[INFO] Starting adaptive clause segmentation...")
-        segmentation_start = time.time()
-        segmentation_service = AdaptiveSegmentationService()
-        segmentation_result = segmentation_service.segment_document(document_content)
-        segmentation_time = time.time() - segmentation_start
-        
-        if segmentation_result.errors:
-            print(f"[ERROR] Segmentation errors: {segmentation_result.errors}")
-        if segmentation_result.warnings:
-            print(f"[WARNING] Segmentation warnings: {segmentation_result.warnings}")
-        
-        print("[SUCCESS] Clause segmentation completed:")
-        print(f"  - Total clauses: {len(segmentation_result.clauses)}")
-        print(f"  - Segmentation time: {segmentation_time:.3f}s")
-        print(f"  - Strategy processing time: {segmentation_result.processing_time_seconds}s")
-        print(f"  - Clause types: {segmentation_result.clause_types_summary}")
-        print(f"  - Segmentation speed: {len(segmentation_result.clauses) / segmentation_time:.1f} clauses/sec")
-        
-        # Log detailed clause information if enabled
-        _log_detailed_clauses(segmentation_result)
-        
-        # Show which strategy was successful
-        if segmentation_result.clauses:
-            strategy_used = segmentation_result.clauses[0].metadata.get('segmentation_metadata', {}).get('strategy_used', 'unknown')
-            print(f"  - Strategy used: {strategy_used}")
-        
-        # Step 3: Process questions
+        # Step 2: Process questions
         print(f"Processing {len(request.questions)} questions with enhanced extraction")
         question_processing_start = time.time()
         
-        # TODO: Implement actual query processing pipeline with embeddings and span mapping
-        # For now, return enhanced placeholder answers with enhanced extraction info
+        # TODO: Implement actual query processing pipeline
+        # For now, return placeholder answers with document info
         placeholder_answers = [
-            f"[Enhanced PyMuPDF4LLM] Based on {len(segmentation_result.clauses)} clauses from {document_content.processing_method} extraction. Document ID: {document_content.document_id}. Question {i+1}: {question[:50]}..."
+            f"[Enhanced PyMuPDF4LLM] Document processed using {document_content.processing_method} extraction. Document ID: {document_content.document_id}. Question {i+1}: {question[:50]}..."
             for i, question in enumerate(request.questions)
         ]
         
@@ -400,7 +254,6 @@ async def process_queries(
         
         print(f"[TIMING] Request completed:")
         print(f"  - Document processing: {document_processing_time:.3f}s")
-        print(f"  - Clause segmentation: {segmentation_time:.3f}s")
         print(f"  - Question processing: {question_processing_time:.3f}s")
         print(f"  - Total request time: {total_request_time:.3f}s")
         

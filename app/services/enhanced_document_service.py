@@ -37,9 +37,15 @@ class EnhancedDocumentService:
         self.storage_service = storage_service or DocumentStorageService()
     
     async def process_document_from_url(self, url: str, document_id: Optional[str] = None) -> DocumentContent:
-        """Process document from URL with enhanced extraction"""
+        """Process document from URL or local file path with enhanced extraction"""
         try:
-            # Download document
+            # Check if this is a local file path (file:// protocol)
+            if url.startswith('file://'):
+                # Handle local file
+                local_path = url[7:]  # Remove 'file://' prefix
+                return await self.process_document_from_local_file(local_path, document_id)
+            
+            # Download document from URL
             pdf_data = await self.download_document(url)
             
             # Generate document ID if not provided
@@ -563,3 +569,102 @@ class EnhancedDocumentService:
         
         except Exception as e:
             print(f"[OCR ERROR] Failed to merge OCR results: {str(e)}")
+
+    async def process_document_from_local_file(self, file_path: str, document_id: Optional[str] = None) -> DocumentContent:
+        """Process document from local file path with enhanced extraction"""
+        try:
+            # Validate file exists
+            local_path = Path(file_path)
+            if not local_path.exists():
+                raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+            
+            if not local_path.is_file():
+                raise HTTPException(status_code=400, detail=f"Path is not a file: {file_path}")
+            
+            # Read file content
+            pdf_data = local_path.read_bytes()
+            
+            # Generate document ID if not provided
+            if not document_id:
+                document_id = self.storage_service.generate_document_id(pdf_data, local_path.name)
+            
+            # Store raw document
+            await self.storage_service.store_raw_document(
+                document_id=document_id,
+                content=pdf_data,
+                filename=local_path.name,
+                source_type="local_file",
+                source_reference=str(local_path.absolute())
+            )
+            
+            # Process the document
+            return await self.process_document_content(document_id, pdf_data)
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Local file processing error: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Local file processing failed: {str(e)}"
+            )
+
+    async def parse_local_file_only(self, file_path: str) -> DocumentContent:
+        """Parse local file without storage or full processing - just extract text"""
+        try:
+            # Validate file exists
+            local_path = Path(file_path)
+            if not local_path.exists():
+                raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+            
+            if not local_path.is_file():
+                raise HTTPException(status_code=400, detail=f"Path is not a file: {file_path}")
+            
+            # Read file content
+            pdf_data = local_path.read_bytes()
+            
+            # Generate a temporary document ID for this parsing session
+            temp_doc_id = f"temp_{int(time.time())}_{hashlib.md5(pdf_data).hexdigest()[:8]}"
+            
+            # Create temporary file for processing
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                temp_file.write(pdf_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Extract text using PyMuPDF4LLM (just the extraction, no storage)
+                print(f"[PARSING] Extracting text using PyMuPDF4LLM...")
+                markdown_result = await self._extract_with_pymupdf4llm(temp_doc_id, temp_file_path)
+                
+                # Extract basic metadata
+                metadata = await self._extract_basic_metadata(temp_file_path)
+                
+                # Create DocumentContent object
+                document_content = DocumentContent(
+                    document_id=temp_doc_id,
+                    text=markdown_result.get("text", ""),
+                    markdown=markdown_result.get("markdown", ""),
+                    pages=metadata.get("pages", 0),
+                    metadata=metadata,
+                    processing_method="pymupdf4llm_parsing_only"
+                )
+                
+                print(f"[PARSING] Extracted {len(document_content.text)} characters from {metadata.get('pages', 0)} pages")
+                
+                return document_content
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Local file parsing error: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Local file parsing failed: {str(e)}"
+            )

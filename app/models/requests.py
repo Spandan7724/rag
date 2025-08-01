@@ -1,7 +1,7 @@
 """
 Request/Response models for the API
 """
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, HttpUrl, Field, validator
 from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 
@@ -19,14 +19,22 @@ class DocumentSource(BaseModel):
 
 class QueryRequest(BaseModel):
     """Request model for document query processing"""
-    documents: Union[HttpUrl, DocumentSource]  # Support both legacy and new format
+    documents: Union[str, DocumentSource]  # Support URLs (http/https/file) and DocumentSource
     questions: List[str]
     request_id: Optional[str] = Field(None, description="Client-provided request ID for tracking")
+    
+    @validator('documents')
+    def validate_documents(cls, v):
+        if isinstance(v, str):
+            # Allow http, https, and file protocols
+            if not (v.startswith(('http://', 'https://', 'file://'))):
+                raise ValueError('Document URL must start with http://, https://, or file://')
+        return v
     
     class Config:
         json_schema_extra = {
             "example": {
-                "documents": "https://example.com/document.pdf",
+                "documents": "https://example.com/document.pdf or file:///path/to/local/file.pdf",
                 "questions": [
                     "What is the grace period for premium payment?",
                     "What are the coverage limits?"

@@ -33,8 +33,7 @@ class Settings(BaseSettings):
     parallel_processing_workers: int = 0  # Number of workers for parallel page processing (0 = auto-detect)
     
     # Debugging and Logging
-    log_segmented_clauses: bool = True  # Log detailed information about each segmented clause
-    save_clause_details: bool = True  # Save clause details to file for inspection
+    # Note: Clause segmentation features removed
     
     # OCR Configuration
     tesseract_cmd: Optional[str] = None  # Path to tesseract executable (auto-detect if None)
