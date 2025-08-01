@@ -5,7 +5,7 @@ python run.py
 
 
   Testing with curl:
-  # Upload local file
+# Upload file
 curl -X POST "http://localhost:8000/hackrx/run" \                                        20:13:29
                              -H "Content-Type: application/json" \
                              -H "Authorization: Bearer 8915ddf1d1760f2b6a3b027c6fa7b16d2d87a042c41452f49a1d43b3cfa6245b"
@@ -16,7 +16,7 @@ curl -X POST "http://localhost:8000/hackrx/run" \                               
                            "questions": ["Test timing"]
                          }'
 
-  # Process local file directly
+# Process local file directly
 curl -X POST "http://localhost:8000/hackrx/run" \                                    
                              -H "Content-Type: application/json" \
                              -H "Authorization: Bearer 8915ddf1d1760f2b6a3b027c6fa7b16d2d87a042c41452f49a1d43b3cfa6245b"
