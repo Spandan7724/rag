@@ -29,8 +29,8 @@ class TextChunker:
     def __init__(self):
         """Initialize text chunker"""
         self.tokenizer = tiktoken.get_encoding("cl100k_base")  # Standard tokenizer
-        self.max_tokens = settings.chunk_size
-        self.overlap_tokens = settings.chunk_overlap
+        self.max_tokens = 450  # Balanced size to isolate short clauses (<600 chars)
+        self.overlap_tokens = 75   # Reasonable overlap for continuity
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""
@@ -246,7 +246,7 @@ class TextChunker:
     
     def chunk_text(self, text: str, document_metadata: Dict[str, Any]) -> List[TextChunk]:
         """
-        Chunk text with smart section preservation
+        Chunk text into small uniform chunks
         
         Args:
             text: Full document text
@@ -255,161 +255,120 @@ class TextChunker:
         Returns:
             List of TextChunk objects
         """
-        print(f"Starting text chunking...")
+        print(f"Starting uniform text chunking...")
         print(f"Document length: {len(text):,} characters")
+        print(f"Target: {self.max_tokens} tokens per chunk with {self.overlap_tokens} token overlap")
         
-        # Detect structure
-        headers = self.detect_section_headers(text)
+        # Simple page detection for metadata
         page_map = self.extract_page_numbers(text)
-        preserve_sections = self.preserve_definitions(text, headers)
-        
-        print(f"Found {len(headers)} section headers")
-        print(f"Found {len(preserve_sections)} sections to preserve intact")
-        
-        # Debug: Show what we're preserving
-        for start, end, reason in preserve_sections:
-            preview = text[start:start+100].replace('\n', ' ')
-            print(f"  Preserving: {reason} - '{preview}...'")
+        headers = self.detect_section_headers(text)
         
         chunks = []
         chunk_id = 0
         pos = 0
         
         while pos < len(text):
-            # Check if we're in a preserve section
-            in_preserve_section = False
-            preserve_info = None
+            # Calculate rough character end based on token estimate (1 token ≈ 4 chars)
+            target_end = min(pos + self.max_tokens * 4, len(text))
             
-            for preserve_start, preserve_end, reason in preserve_sections:
-                if preserve_start <= pos < preserve_end:
-                    in_preserve_section = True
-                    preserve_info = (preserve_start, preserve_end, reason)
-                    break
+            # Smart chunking to preserve table structure
+            chunk_end = self._find_smart_break_point(text, pos, target_end)
             
-            if in_preserve_section:
-                # Take the entire preserved section as one chunk
-                preserve_start, preserve_end, reason = preserve_info
-                section_text = text[preserve_start:preserve_end]
-                
+            # Extract chunk text and preserve structure
+            chunk_text = text[pos:chunk_end].strip()
+            
+            # Detect and mark table chunks
+            chunk_type = "table" if self._is_table_content(chunk_text) else "content"
+            
+            if chunk_text:  # Only create non-empty chunks
                 chunk = self.create_chunk(
                     chunk_id=chunk_id,
-                    text=section_text,
-                    char_start=preserve_start,
-                    char_end=preserve_end,
+                    text=chunk_text,
+                    char_start=pos,
+                    char_end=chunk_end,
                     page_map=page_map,
                     headers=headers,
-                    chunk_type="definition" if "definition" in reason.lower() else "preserved"
+                    chunk_type=chunk_type
                 )
                 
                 chunks.append(chunk)
                 chunk_id += 1
-                pos = preserve_end
                 
-                print(f"  Created preserved chunk {chunk_id-1}: {chunk.token_count} tokens - {reason}")
-                
+                # Move position with overlap (convert tokens to approximate chars)
+                overlap_chars = self.overlap_tokens * 4
+                pos = max(chunk_end - overlap_chars, pos + 1)
             else:
-                # Regular chunking
-                # Find a good breaking point within token limit
-                chunk_start = pos
-                chunk_end = pos
-                chunk_tokens = 0
-                
-                # Expand chunk until we hit token limit
-                while chunk_end < len(text) and chunk_tokens < self.max_tokens:
-                    # Look for next good breaking point (paragraph, sentence, etc.)
-                    para_break = text.find('\n\n', chunk_end)
-                    sent_break = text.find('. ', chunk_end)
-                    
-                    # Find the next reasonable breaking point
-                    breaks = []
-                    if para_break != -1:
-                        breaks.append(para_break)
-                    if sent_break != -1:
-                        breaks.append(sent_break + 1)  # Include the period
-                    
-                    if breaks:
-                        next_break = min(breaks)
-                    else:
-                        # No good break points found, advance by a reasonable amount
-                        next_break = min(chunk_end + 200, len(text))
-                    
-                    # Ensure we're making progress
-                    if next_break <= chunk_end:
-                        next_break = min(chunk_end + 50, len(text))
-                    
-                    # Check if adding this segment would exceed token limit
-                    test_text = text[chunk_start:next_break]
-                    test_tokens = self.count_tokens(test_text)
-                    
-                    if test_tokens > self.max_tokens and chunk_end > chunk_start:
-                        # Would exceed limit, use current position
-                        break
-                    
-                    chunk_end = next_break
-                    chunk_tokens = test_tokens
-                    
-                    # Check if we're about to enter a preserve section
-                    should_stop = False
-                    for preserve_start, preserve_end, reason in preserve_sections:
-                        if chunk_start < preserve_start <= chunk_end:
-                            # Stop before the preserve section
-                            chunk_end = preserve_start
-                            should_stop = True
-                            break
-                    
-                    if should_stop:
-                        break
-                
-                # Ensure minimum chunk size
-                if chunk_end <= chunk_start + 50:  # Too small
-                    chunk_end = min(chunk_start + 200, len(text))
-                
-                # Create chunk
-                chunk_text = text[chunk_start:chunk_end]
-                
-                if chunk_text.strip():  # Only create non-empty chunks
-                    chunk = self.create_chunk(
-                        chunk_id=chunk_id,
-                        text=chunk_text,
-                        char_start=chunk_start,
-                        char_end=chunk_end,
-                        page_map=page_map,
-                        headers=headers,
-                        chunk_type="content"
-                    )
-                    
-                    chunks.append(chunk)
-                    chunk_id += 1
-                    
-                    # Apply overlap for next chunk
-                    overlap_chars = min(self.overlap_tokens * 4, chunk_end - chunk_start - 50)  # Rough char estimate
-                    pos = max(chunk_end - overlap_chars, chunk_start + 1)
-                else:
-                    pos = chunk_end
+                pos = chunk_end
         
-        # Final statistics
+        # Final statistics  
         total_tokens = sum(chunk.token_count for chunk in chunks)
         avg_tokens = total_tokens / len(chunks) if chunks else 0
+        table_chunks = sum(1 for chunk in chunks if chunk.chunk_type == "table")
         
-        print(f"Text chunking completed:")
+        print(f"Smart chunking completed:")
         print(f"  - Total chunks: {len(chunks)}")
+        print(f"  - Table chunks: {table_chunks}")
         print(f"  - Total tokens: {total_tokens:,}")
         print(f"  - Average tokens per chunk: {avg_tokens:.1f}")
-        print(f"  - Preserved sections: {len(preserve_sections)}")
-        
-        # Check for grace period specifically
-        grace_chunks = [c for c in chunks if 'grace period' in c.text.lower()]
-        if grace_chunks:
-            print(f"  - Found Grace Period in {len(grace_chunks)} chunk(s)")
-            for i, chunk in enumerate(grace_chunks):
-                if 'thirty days' in chunk.text.lower():
-                    print(f"    ✓ Chunk {chunk.chunk_id} contains complete grace period definition")
-                else:
-                    print(f"    ⚠ Chunk {chunk.chunk_id} mentions grace period but may be incomplete")
-        else:
-            print("  - ⚠ WARNING: No chunks found containing 'grace period'")
+        print(f"  - Chunk size optimized for short clauses (<600 chars)")
         
         return chunks
+    
+    def _find_smart_break_point(self, text: str, start: int, target_end: int) -> int:
+        """Find a smart break point that preserves table structure and sentence boundaries"""
+        
+        if target_end >= len(text):
+            return len(text)
+        
+        # Look for good break points in order of preference
+        search_window = min(200, target_end - start)  # Search within 200 chars of target
+        
+        # 1. Try to break at paragraph boundaries (double newlines)
+        for i in range(target_end, max(start, target_end - search_window), -1):
+            if i < len(text) - 1 and text[i:i+2] == '\n\n':
+                return i
+        
+        # 2. Try to break at single line breaks (preserve table rows)
+        for i in range(target_end, max(start, target_end - search_window), -1):
+            if text[i] == '\n':
+                return i + 1  # Include the newline
+        
+        # 3. Try to break at sentence boundaries
+        for i in range(target_end, max(start, target_end - search_window), -1):
+            if i < len(text) - 1 and text[i] == '.' and text[i+1] == ' ':
+                return i + 1
+        
+        # 4. Fallback to target end
+        return target_end
+    
+    def _is_table_content(self, text: str) -> bool:
+        """Detect if chunk contains table-like content"""
+        
+        lines = text.split('\n')
+        if len(lines) < 2:
+            return False
+        
+        # Check for table indicators
+        table_indicators = 0
+        
+        # Count lines with percentage symbols (common in benefits tables)
+        percentage_lines = sum(1 for line in lines if '%' in line)
+        if percentage_lines >= 2:
+            table_indicators += 2
+        
+        # Count lines with specific patterns (Sum Insured, Plan A/B, etc.)
+        pattern_lines = sum(1 for line in lines if any(pattern in line.lower() for pattern in [
+            'plan a', 'plan b', 'sum insured', 'sub-limit', 'coverage', 'benefit'
+        ]))
+        if pattern_lines >= 2:
+            table_indicators += 1
+        
+        # Count lines with multiple spaces (table alignment)
+        spaced_lines = sum(1 for line in lines if '  ' in line)  # Two or more spaces
+        if spaced_lines >= len(lines) // 2:
+            table_indicators += 1
+        
+        return table_indicators >= 2
 
 
 # Singleton instance

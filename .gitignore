@@ -17,3 +17,5 @@ parsed_documents/
 pdfs/
 vector_store/
 .env
+repomix-output.xml
+server_logs.xml

@@ -104,6 +104,34 @@ class DocumentProcessor:
             for page_num in range(pdf_doc.page_count):
                 page = pdf_doc[page_num]
                 page_text = page.get_text()
+                
+                # OCR fallback for pages with minimal text (likely scanned/images)
+                if len(page_text.strip()) < 100:  # Less than 100 chars suggests scanned content
+                    print(f"  Page {page_num + 1}: Minimal text detected ({len(page_text)} chars), attempting OCR...")
+                    try:
+                        import pytesseract
+                        from PIL import Image
+                        import io
+                        
+                        # Get page as image
+                        pix = page.get_pixmap(matrix=pymupdf.Matrix(2.0, 2.0))  # 2x resolution for better OCR
+                        img_data = pix.tobytes("png")
+                        img = Image.open(io.BytesIO(img_data))
+                        
+                        # Extract text using OCR
+                        ocr_text = pytesseract.image_to_string(img, config='--psm 6')
+                        
+                        if len(ocr_text.strip()) > len(page_text.strip()):
+                            print(f"  Page {page_num + 1}: OCR extracted {len(ocr_text)} chars (vs {len(page_text)} native)")
+                            page_text = ocr_text
+                        else:
+                            print(f"  Page {page_num + 1}: OCR didn't improve extraction")
+                            
+                    except ImportError:
+                        print(f"  Page {page_num + 1}: OCR libraries not available (install: pip install pytesseract pillow)")
+                    except Exception as e:
+                        print(f"  Page {page_num + 1}: OCR failed: {e}")
+                
                 page_texts.append(f"--- Page {page_num + 1} ---\n{page_text}")
                 text_parts.append(page_text)
             

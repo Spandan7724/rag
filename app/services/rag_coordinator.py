@@ -9,7 +9,10 @@ from app.services.document_processor import get_document_processor, ProcessedDoc
 from app.services.text_chunker import get_text_chunker, TextChunk
 from app.services.embedding_manager import get_embedding_manager
 from app.services.vector_store import get_vector_store
-from app.services.answer_generator import get_answer_generator
+from app.services.enhanced_answer_generator import get_enhanced_answer_generator as get_answer_generator
+from app.core.config import Settings
+
+settings = Settings()
 
 
 @dataclass
@@ -168,7 +171,7 @@ class RAGCoordinator:
             stage_start = time.time()
             search_results = self.vector_store.search(
                 query_embedding=query_embedding,
-                k=k_retrieve,
+                k=settings.k_retrieve,  # Use config value
                 doc_id_filter=doc_id
             )
             vector_search_time = time.time() - stage_start

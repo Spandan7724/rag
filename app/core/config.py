@@ -34,13 +34,18 @@ class Settings(BaseSettings):
     # Embedding Configuration
     embedding_model: str = "BAAI/bge-m3"
     embedding_device: str = "cuda"  # Use GPU if available
-    chunk_size: int = 512  # Token-based chunk size
-    chunk_overlap: int = 50  # Overlap between chunks
+    
+    # Text Chunking Configuration
+    chunk_size: int = 450  # Smaller chunks to isolate short clauses like grace period (<600 chars)
+    chunk_overlap: int = 75   # Reasonable overlap for continuity
+    k_retrieve: int = 15  # Number of chunks to retrieve from vector search (increased for complex questions)
     max_tokens_per_chunk: int = 8192  # BGE-M3 max supported tokens
     
     # LLM Configuration
-    llm_model: str = "gemini-2.0-flash"  # Gemini model for answer generation
+    llm_provider: str = "copilot"  # Options: "gemini", "copilot"
+    llm_model: str = "gpt-4.1-2025-04-14"  # Model for answer generation #gpt-4.1-2025-04-14 #gemini-1.5-flash-latest
     gemini_api_key: str = ""  # Set via environment variable GEMINI_API_KEY
+    copilot_access_token: str = ""  # Set via environment variable COPILOT_ACCESS_TOKEN
     llm_max_tokens: int = 8192  # Maximum tokens for LLM response
     llm_temperature: float = 0.1  # Low temperature for factual responses
     
