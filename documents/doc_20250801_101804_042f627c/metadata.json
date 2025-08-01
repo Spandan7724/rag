@@ -1,0 +1,14 @@
+{
+  "document_id": "doc_20250801_101804_042f627c",
+  "original_filename": "policy.pdf?sv=2023-01-03&st=2025-07-04T09%3A11%3A24Z&se=2027-07-05T09%3A11%3A00Z&sr=b&sp=r&sig=N4a9OU0w0QXO6AOIBiu4bpl7AXvEZogeT%2FjUHNO7HzQ%3D",
+  "file_size": 704602,
+  "content_hash": "042f627c5d8f619cf62cc21f864b08dfd59059d0b9aab805d132e0014489d625",
+  "upload_timestamp": "2025-08-01T10:18:04.357858",
+  "processing_status": "completed",
+  "source_type": "url",
+  "source_reference": "https://hackrx.blob.core.windows.net/assets/policy.pdf?sv=2023-01-03&st=2025-07-04T09%3A11%3A24Z&se=2027-07-05T09%3A11%3A00Z&sr=b&sp=r&sig=N4a9OU0w0QXO6AOIBiu4bpl7AXvEZogeT%2FjUHNO7HzQ%3D",
+  "processing_method": "pending",
+  "pages": null,
+  "processing_time_ms": 10833,
+  "error_message": null
+}
