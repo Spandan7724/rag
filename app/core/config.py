@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     save_pdf_blobs: bool = True  # Save PDF files in blob format for caching
     pdf_blob_dir: str = "blob_pdf"  # Directory to save PDF blobs
     
+    # File Upload Configuration
+    upload_dir: str = "uploads"  # Directory to store uploaded files
+    upload_retention_hours: int = 24  # How long to keep uploaded files
+    max_upload_size: int = 100 * 1024 * 1024  # 100MB max upload size
+    allowed_upload_types: list = ["application/pdf"]  # Only allow PDF files
+    upload_cleanup_interval: int = 3600  # Cleanup interval in seconds (1 hour)
+    
     # Request Timeouts
     download_timeout: int = 60  # seconds
     processing_timeout: int = 300  # seconds

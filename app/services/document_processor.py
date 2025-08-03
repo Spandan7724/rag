@@ -1,6 +1,7 @@
 """
 Document processing service for PDF download and text extraction
 """
+import os
 import aiohttp
 import pymupdf
 import hashlib
@@ -41,19 +42,193 @@ class DocumentProcessor:
     
     async def download_pdf(self, url: str) -> bytes:
         """
-        Download PDF from URL with proper error handling
+        Download PDF from URL or read from local/uploaded file with proper error handling
         
         Args:
-            url: URL to download PDF from
+            url: URL to download PDF from (HTTP/HTTPS), local file path (file://), or upload ID (upload://)
             
         Returns:
             PDF content as bytes
         """
-        print(f"Downloading document from URL: {url}")
+        print(f"Processing document from: {url}")
+        print(f"URL type check - startswith('file://'): {url.startswith('file://')}")
+        print(f"URL type check - startswith('upload://'): {url.startswith('upload://')}")
+        
+        # Check if this is a local file URL
+        if url.startswith('file://'):
+            print(f"Routing to _read_local_file for: {url}")
+            return await self._read_local_file(url)
+        elif url.startswith('upload://'):
+            print(f"Routing to _read_uploaded_file for: {url}")
+            return await self._read_uploaded_file(url)
+        else:
+            print(f"Routing to _download_remote_file for: {url}")
+            return await self._download_remote_file(url)
+    
+    async def _read_local_file(self, file_url: str) -> bytes:
+        """
+        Read PDF from local file system
+        
+        Args:
+            file_url: Local file URL (file:///path/to/file.pdf)
+            
+        Returns:
+            PDF content as bytes
+        """
+        # Convert file:// URL to local path
+        import urllib.parse
+        
+        print(f"_read_local_file called with: {file_url}")
+        
+        try:
+            # Parse the file URL to get the local path
+            parsed_url = urllib.parse.urlparse(file_url)
+            local_path = urllib.parse.unquote(parsed_url.path)
+            print(f"Parsed local path: {local_path}")
+            
+            # Handle relative paths and resolve to absolute path
+            file_path = Path(local_path).resolve()
+            
+            print(f"Reading local file: {file_path}")
+            
+            # If file doesn't exist, try looking for files with URL-encoded names
+            if not file_path.exists():
+                # Try to find the file with different encoding patterns
+                parent_dir = file_path.parent
+                filename = file_path.name
+                
+                print(f"File not found, searching for alternatives in: {parent_dir}")
+                
+                if parent_dir.exists():
+                    # Look for files with similar names (handling URL encoding variations)
+                    import fnmatch
+                    
+                    # Try different encoding patterns
+                    search_patterns = [
+                        filename,  # Original
+                        urllib.parse.quote(filename),  # URL encode the filename
+                        filename.replace(' ', '%20'),  # Replace spaces with %20
+                        urllib.parse.unquote(filename),  # URL decode (in case it's double-encoded)
+                    ]
+                    
+                    for pattern in search_patterns:
+                        potential_files = list(parent_dir.glob(f"*{pattern.split('_')[0]}*"))  # Match by prefix
+                        if potential_files:
+                            file_path = potential_files[0]
+                            print(f"Found alternative file: {file_path}")
+                            break
+            
+            # Check if file exists
+            if not file_path.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Local file not found: {file_path}"
+                )
+            
+            # Check if it's actually a file (not a directory)
+            if not file_path.is_file():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Path is not a file: {file_path}"
+                )
+            
+            # Basic security check - ensure file is readable
+            if not os.access(file_path, os.R_OK):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Permission denied: Cannot read file {file_path}"
+                )
+            
+            # Check file size before reading
+            file_size = file_path.stat().st_size
+            if file_size > settings.max_file_size:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File too large: {file_size:,} bytes (max: {settings.max_file_size:,})"
+                )
+            
+            # Read the file
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            
+            print(f"Read local PDF: {len(content):,} bytes from {local_path}")
+            return content
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to read local file {file_url}: {str(e)}"
+            )
+    
+    async def _read_uploaded_file(self, upload_url: str) -> bytes:
+        """
+        Read PDF from uploaded file using file manager
+        
+        Args:
+            upload_url: Upload URL (upload://file_id)
+            
+        Returns:
+            PDF content as bytes
+        """
+        try:
+            # Extract file ID from upload URL
+            file_id = upload_url[9:]  # Remove 'upload://' prefix
+            
+            if not file_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid upload URL: missing file ID"
+                )
+            
+            print(f"Reading uploaded file: {file_id}")
+            
+            # Import file manager here to avoid circular imports
+            from app.services.file_manager import get_file_manager
+            file_manager = get_file_manager()
+            
+            # Get file path from file manager
+            file_path = file_manager.get_file_path(file_id)
+            
+            if not file_path:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Uploaded file not found or expired: {file_id}"
+                )
+            
+            # Read the file
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            
+            print(f"Read uploaded PDF: {len(content):,} bytes from file ID {file_id}")
+            return content
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to read uploaded file {upload_url}: {str(e)}"
+            )
+    
+    async def _download_remote_file(self, url: str) -> bytes:
+        """
+        Download PDF from remote HTTP/HTTPS URL
+        
+        Args:
+            url: Remote URL to download from
+            
+        Returns:
+            PDF content as bytes
+        """
+        print(f"Downloading from remote URL: {url}")
+        print(f"WARNING: _download_remote_file called with URL: {url}")
         
         try:
             timeout = aiohttp.ClientTimeout(total=settings.download_timeout)
             async with aiohttp.ClientSession(timeout=timeout) as session:
+                print(f"Attempting aiohttp GET request to: {url}")
                 async with session.get(url) as response:
                     if response.status != 200:
                         raise HTTPException(
@@ -189,6 +364,17 @@ class DocumentProcessor:
             original_name = ""
             if url.startswith('file://'):
                 original_name = Path(url[7:]).stem
+            elif url.startswith('upload://'):
+                # For uploaded files, try to get original filename from file manager
+                try:
+                    from app.services.file_manager import get_file_manager
+                    file_manager = get_file_manager()
+                    file_id = url[9:]  # Remove 'upload://' prefix
+                    file_info = file_manager.get_file_info(file_id)
+                    if file_info:
+                        original_name = Path(file_info.original_filename).stem
+                except:
+                    original_name = f"upload_{url[9:10]}"  # Use first char of file ID
             elif '/' in url:
                 try:
                     original_name = Path(url.split('?')[0]).stem  # Remove query params
@@ -264,15 +450,34 @@ class DocumentProcessor:
     
     def generate_doc_id(self, url: str) -> str:
         """
-        Generate consistent document ID from URL
+        Generate consistent document ID from URL or file path
         
         Args:
-            url: Document URL
+            url: Document URL (HTTP/HTTPS) or file path (file://)
             
         Returns:
             12-character document ID
         """
         return hashlib.md5(url.encode()).hexdigest()[:12]
+    
+    @staticmethod
+    def create_file_url(file_path: str) -> str:
+        """
+        Create a proper file:// URL from a local file path
+        
+        Args:
+            file_path: Local file path (absolute or relative)
+            
+        Returns:
+            Properly formatted file:// URL
+        """
+        import urllib.parse
+        
+        # Convert to absolute path
+        abs_path = Path(file_path).resolve()
+        
+        # Create proper file URL
+        return f"file://{urllib.parse.quote(str(abs_path))}"
     
     async def process_document(self, url: str) -> ProcessedDocument:
         """

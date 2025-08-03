@@ -19,6 +19,7 @@ class DirectoryManager:
         self.required_directories = [
             settings.pdf_blob_dir,
             settings.parsed_text_dir,
+            settings.upload_dir,  # File upload storage
             "vector_store",  # Vector database storage
         ]
     

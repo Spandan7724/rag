@@ -1,12 +1,16 @@
 """
 API routes for the RAG application
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.security import HTTPAuthorizationCredentials
 from typing import List
 
-from app.models.requests import QueryRequest, QueryResponse, HealthResponse
+from app.models.requests import (
+    QueryRequest, QueryResponse, HealthResponse, UploadResponse, 
+    UploadRequest, FileInfoResponse, FileListResponse
+)
 from app.services.rag_coordinator import get_rag_coordinator
+from app.services.file_manager import get_file_manager
 from app.core.security import verify_token
 from app.core.config import settings
 from app.core.directories import get_directory_manager
@@ -213,4 +217,242 @@ async def get_directory_info(token: str = Depends(verify_token)):
         raise HTTPException(
             status_code=500,
             detail=f"Directory info collection failed: {str(e)}"
+        )
+
+
+@router.post("/upload", response_model=UploadResponse)
+async def upload_file(
+    file: UploadFile = File(...),
+    token: str = Depends(verify_token)
+):
+    """
+    Upload a PDF file for processing
+    
+    This endpoint:
+    1. Validates the uploaded file (PDF only, size limits)
+    2. Saves the file with a unique ID
+    3. Returns file information and upload URL for use in queries
+    """
+    try:
+        file_manager = get_file_manager()
+        
+        # Save the uploaded file
+        file_info = await file_manager.save_uploaded_file(file)
+        
+        return UploadResponse(
+            file_id=file_info.file_id,
+            original_filename=file_info.original_filename,
+            file_size=file_info.file_size,
+            content_type=file_info.content_type,
+            uploaded_at=file_info.uploaded_at,
+            expires_at=file_info.expires_at,
+            upload_url=f"upload://{file_info.file_id}"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"File upload failed: {str(e)}"
+        )
+
+
+@router.post("/upload-and-query", response_model=QueryResponse)
+async def upload_file_and_query(
+    file: UploadFile = File(...),
+    questions: str = Form(...),
+    token: str = Depends(verify_token)
+):
+    """
+    Upload a PDF file and immediately process queries
+    
+    This endpoint combines upload and query processing:
+    1. Uploads and validates the PDF file
+    2. Processes the document through the RAG pipeline
+    3. Answers the provided questions
+    4. Cleans up the uploaded file after processing
+    """
+    import json
+    
+    try:
+        # Parse questions JSON
+        try:
+            questions_list = json.loads(questions)
+            if not isinstance(questions_list, list):
+                raise ValueError("Questions must be a list")
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="Questions must be valid JSON array"
+            )
+        
+        file_manager = get_file_manager()
+        rag_coordinator = get_rag_coordinator()
+        
+        # Upload the file
+        file_info = await file_manager.save_uploaded_file(file)
+        
+        try:
+            # Create upload URL for processing
+            upload_url = f"upload://{file_info.file_id}"
+            
+            # Process document and answer questions
+            doc_result = await rag_coordinator.process_document(upload_url)
+            doc_id = doc_result["doc_id"]
+            
+            print(f"Processed uploaded document: {file_info.original_filename}")
+            print(f"  - File ID: {file_info.file_id}")
+            print(f"  - Document ID: {doc_id}")
+            
+            # Answer questions
+            answers = []
+            for question in questions_list:
+                rag_response = rag_coordinator.answer_question(
+                    question=question,
+                    doc_id=doc_id,
+                    k_retrieve=10,
+                    max_context_length=6000
+                )
+                answers.append(rag_response.answer)
+            
+            print(f"Answered {len(questions_list)} questions for uploaded file")
+            
+            return QueryResponse(answers=answers)
+            
+        finally:
+            # Clean up uploaded file after processing
+            file_manager.remove_file(file_info.file_id)
+            print(f"Cleaned up uploaded file: {file_info.file_id}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Upload and query failed: {str(e)}"
+        )
+
+
+@router.get("/uploads", response_model=FileListResponse)
+async def list_uploaded_files(token: str = Depends(verify_token)):
+    """List all uploaded files"""
+    try:
+        file_manager = get_file_manager()
+        files_data = file_manager.list_files()
+        
+        files = []
+        for file_data in files_data:
+            files.append(FileInfoResponse(
+                file_id=file_data["file_id"],
+                original_filename=file_data["original_filename"],
+                file_size=file_data["file_size"],
+                content_type="application/pdf",  # We only allow PDFs
+                uploaded_at=file_data["uploaded_at"],
+                expires_at=file_data["expires_at"],
+                expired=file_data["expired"],
+                exists=file_data["exists"]
+            ))
+        
+        return FileListResponse(
+            total_files=len(files),
+            files=files
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list uploaded files: {str(e)}"
+        )
+
+
+@router.get("/uploads/{file_id}", response_model=FileInfoResponse)
+async def get_uploaded_file_info(
+    file_id: str,
+    token: str = Depends(verify_token)
+):
+    """Get information about a specific uploaded file"""
+    try:
+        file_manager = get_file_manager()
+        file_info = file_manager.get_file_info(file_id)
+        
+        if not file_info:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Uploaded file not found: {file_id}"
+            )
+        
+        from datetime import datetime
+        current_time = datetime.now()
+        
+        return FileInfoResponse(
+            file_id=file_info.file_id,
+            original_filename=file_info.original_filename,
+            file_size=file_info.file_size,
+            content_type=file_info.content_type,
+            uploaded_at=file_info.uploaded_at,
+            expires_at=file_info.expires_at,
+            expired=current_time > file_info.expires_at,
+            exists=file_manager.get_file_path(file_id) is not None
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get file info: {str(e)}"
+        )
+
+
+@router.delete("/uploads/{file_id}")
+async def delete_uploaded_file(
+    file_id: str,
+    token: str = Depends(verify_token)
+):
+    """Delete a specific uploaded file"""
+    try:
+        file_manager = get_file_manager()
+        
+        if not file_manager.get_file_info(file_id):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Uploaded file not found: {file_id}"
+            )
+        
+        success = file_manager.remove_file(file_id)
+        
+        if success:
+            return {"message": f"File {file_id} deleted successfully"}
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to delete file"
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete file: {str(e)}"
+        )
+
+
+@router.get("/debug/file-manager")
+async def get_file_manager_stats(token: str = Depends(verify_token)):
+    """Debug endpoint to inspect file manager statistics"""
+    try:
+        file_manager = get_file_manager()
+        stats = file_manager.get_stats()
+        
+        return {
+            "status": "operational",
+            "file_manager_stats": stats
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"File manager stats collection failed: {str(e)}"
         )
