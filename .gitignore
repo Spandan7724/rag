@@ -19,3 +19,4 @@ vector_store/
 .env
 repomix-output.xml
 server_logs.xml
+question_logs/

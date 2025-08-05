@@ -2,6 +2,7 @@
 Enhanced answer generator supporting multiple LLM providers (Gemini + Copilot)
 """
 import time
+import threading
 import os
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -9,18 +10,71 @@ from dataclasses import dataclass
 from sentence_transformers import CrossEncoder
 from app.services.vector_store import SearchResult
 from app.services.copilot_provider import get_copilot_provider, CopilotResponse
+from app.services.cache_manager import get_cache_manager
 from app.core.config import Settings
 
-# Cross-encoder for reranking
-RERANKER = CrossEncoder("BAAI/bge-reranker-large")
 
-# ─── Warm-up to compile kernels & fill CUDA cache ───────────────────────
-print("Warming up reranker...")
-_ = RERANKER.predict([("warm up", "warm up")])
-print("✓ Reranker warmed up")
+class ThreadSafeReranker:
+    """Thread-safe wrapper for CrossEncoder reranker"""
+    
+    def __init__(self):
+        self.reranker = None
+        self._reranker_lock = threading.Lock()
+        self._reranker_loaded = False
+        self.model_name = "BAAI/bge-reranker-large"
+        
+    def _load_reranker(self):
+        """Thread-safe lazy load the reranker model"""
+        # Quick check without lock (double-checked locking pattern)
+        if self._reranker_loaded and self.reranker is not None:
+            return
+        
+        with self._reranker_lock:
+            # Double-check inside the lock
+            if self._reranker_loaded and self.reranker is not None:
+                return
+            
+            try:
+                print(f"Loading reranker model (thread-safe): {self.model_name}")
+                start_time = time.time()
+                
+                self.reranker = CrossEncoder(self.model_name)
+                
+                load_time = time.time() - start_time
+                print(f"Reranker model loaded successfully in {load_time:.2f}s")
+                
+                # Warm up the model
+                print("Warming up reranker...")
+                warmup_start = time.time()
+                self.reranker.predict([("warm up", "warm up")])
+                warmup_time = time.time() - warmup_start
+                print(f"Reranker warmed up in {warmup_time:.2f}s")
+                
+                # Mark as loaded
+                self._reranker_loaded = True
+                print("Reranker ready for parallel processing!")
+                
+            except Exception as e:
+                raise RuntimeError(f"Failed to load reranker model: {str(e)}")
+    
+    def predict(self, pairs):
+        """Thread-safe prediction with the reranker"""
+        self._load_reranker()
+        
+        # Use lock during prediction to ensure thread safety
+        with self._reranker_lock:
+            return self.reranker.predict(pairs)
+    
+    def is_loaded(self) -> bool:
+        """Check if reranker is loaded"""
+        return self._reranker_loaded and self.reranker is not None
 
-TOP_K_INITIAL = 10      # retrieve from FAISS  
-TOP_K_RERANKED = 5      # feed to LLM (increased for better coverage)
+
+# Create thread-safe reranker instance
+RERANKER = ThreadSafeReranker()
+
+# Note: TOP_K_INITIAL is now dynamically set via settings.k_retrieve (configurable in config.py or .env)
+# TOP_K_RERANKED is now configurable via settings.top_k_reranked in config.py
 
 settings = Settings()
 
@@ -42,6 +96,7 @@ class EnhancedAnswerGenerator:
         self.model_name = settings.llm_model
         self.temperature = settings.llm_temperature
         self.max_tokens = settings.llm_max_tokens
+        self.cache_manager = get_cache_manager()
         
         print(f"Initializing enhanced answer generator: {self.provider_type} - {self.model_name}")
         
@@ -103,31 +158,52 @@ class EnhancedAnswerGenerator:
         return sources
 
     def _create_rag_prompt(self, question: str, context_str: str) -> str:
-        """Create RAG prompt with system message and simple format"""
-        system_message = """You are an insurance-policy QA assistant.
+        """Create enhanced RAG prompt with improved accuracy instructions"""
+        
+        # Classify question type for specialized instructions
+        question_lower = question.lower()
+        
+        specialized_instructions = ""
+        if any(term in question_lower for term in ['percentage', 'percent', '%', 'amount', 'limit']):
+            specialized_instructions = "\n- Extract exact numbers, percentages, and amounts as stated in the context."
+        elif any(term in question_lower for term in ['definition', 'meaning', 'what is', 'what does']):
+            specialized_instructions = "\n- Provide the precise definition as stated in the policy document."
+        elif any(term in question_lower for term in ['when', 'time', 'period', 'days']):
+            specialized_instructions = "\n- Include specific time periods, days, and conditions exactly as mentioned."
+        elif any(term in question_lower for term in ['coverage', 'covered', 'benefit']):
+            specialized_instructions = "\n- State coverage details and any conditions or exclusions clearly."
+        
+        system_message = f"""You are a precise insurance policy expert. Answer ONLY based on the provided context.
 
-Format rules (MUST follow):
-1. Respond in ONE paragraph, ≤30 words.
-2. Do not use bullet points, headings, tables, or references.
-3. If the answer is absent, reply exactly: Not available in document
+CRITICAL RULES:
+1. Extract information EXACTLY as written in the context - no paraphrasing
+2. For numbers/percentages: Use exact values from context
+3. For definitions: Use precise wording from policy document
+4. If information is missing: Reply exactly "Not available in document"
+5. Provide comprehensive, detailed answers using all relevant information from context
+6. Structure your response clearly with specific details, conditions, and procedures{specialized_instructions}
 
-Example
-Q: What is the grace period?
-A: A grace period of thirty days is allowed after the premium due date to renew the policy without losing continuity benefits."""
+EXAMPLE:
+Q: What is the grace period for premium payment?
+A: A grace period of thirty days is allowed for payment of renewal premium without losing continuity benefits. During this period, the policy remains in force and all benefits are available to the insured."""
         
         return f"""{system_message}
 
-CONTEXT:
+CONTEXT (numbered chunks for reference):
 {context_str}
 
-Q: {question}
-A:"""
+QUESTION: {question}
+ANSWER:"""
 
     def _apply_boost_rules(self, question: str, candidates: List[SearchResult], scores: List[float]) -> List[float]:
         """Apply boost rules for critical terms that often get missed"""
         
         question_lower = question.lower()
-        boosted_scores = scores.copy()
+        # Ensure scores is a list of Python floats, not a numpy array
+        if hasattr(scores, 'tolist'):
+            boosted_scores = [float(x) for x in scores.tolist()]
+        else:
+            boosted_scores = [float(x) for x in scores]
         
         for i, candidate in enumerate(candidates):
             text_lower = candidate.text.lower()
@@ -195,7 +271,7 @@ A:"""
             
             # Apply boost
             if boost_factor > 0:
-                boosted_scores[i] = min(scores[i] + boost_factor, 1.0)
+                boosted_scores[i] = min(float(scores[i]) + boost_factor, 1.0)
         
         return boosted_scores
 
@@ -264,6 +340,58 @@ A:"""
                     break
         
         return candidates
+    
+    def classify_query_complexity(self, question: str) -> str:
+        """
+        Classify query complexity to determine optimal retrieval strategy
+        
+        Returns:
+            'simple', 'medium', or 'complex'
+        """
+        # Simple heuristics for query complexity
+        question_lower = question.lower()
+        
+        # Complex indicators
+        complex_patterns = [
+            'compare', 'difference', 'versus', 'vs', 'between',
+            'both', 'either', 'neither', 'all of', 'any of',
+            'calculate', 'compute', 'sum', 'total', 'amount',
+            'policy', 'coverage', 'benefit', 'claim', 'premium',
+            'exclusion', 'deductible', 'co-pay', 'waiting period'
+        ]
+        
+        # Medium indicators  
+        medium_patterns = [
+            'when', 'where', 'how', 'why', 'what if',
+            'condition', 'requirement', 'eligible', 'qualify',
+            'process', 'procedure', 'step', 'document'
+        ]
+        
+        complex_count = sum(1 for pattern in complex_patterns if pattern in question_lower)
+        medium_count = sum(1 for pattern in medium_patterns if pattern in question_lower)
+        
+        if complex_count >= 2 or len(question.split()) > 15:
+            return 'complex'
+        elif complex_count >= 1 or medium_count >= 2 or len(question.split()) > 8:
+            return 'medium'
+        else:
+            return 'simple'
+    
+    def get_adaptive_k(self, question: str, base_k: int) -> int:
+        """
+        Determine optimal k based on query complexity
+        """
+        if not settings.adaptive_k:
+            return base_k
+            
+        complexity = self.classify_query_complexity(question)
+        
+        if complexity == 'complex':
+            return min(settings.max_k_retrieve, base_k + 5)
+        elif complexity == 'medium':
+            return min(settings.max_k_retrieve, base_k + 2)
+        else:
+            return max(settings.min_k_retrieve, base_k - 2)
 
     def generate_answer(
         self, 
@@ -296,21 +424,61 @@ A:"""
                 model_info={"provider": self.provider_type, "model": self.model_name, "method": "no_context"}
             )
         
+        # Determine complexity and adaptive parameters
+        complexity = self.classify_query_complexity(question)
+        adaptive_k_initial = self.get_adaptive_k(question, settings.k_retrieve)
+        
+        # Adaptive TOP_K_RERANKED based on complexity (using configurable base value)
+        base_reranked = settings.top_k_reranked
+        if settings.adaptive_k:
+            # Use adaptive logic when enabled
+            if complexity == 'complex':
+                adaptive_reranked = min(base_reranked + 2, len(search_results))
+            elif complexity == 'medium':
+                adaptive_reranked = min(base_reranked, len(search_results))
+            else:
+                adaptive_reranked = min(base_reranked - 5, len(search_results), 8)  # Minimum of 8 for simple queries
+        else:
+            # Use fixed value when adaptive_k is disabled
+            adaptive_reranked = min(base_reranked, len(search_results))
+        
+        print(f"Query complexity: {complexity}, using {adaptive_k_initial} initial, {adaptive_reranked} final")
+        
         # Apply cross-encoder reranking
-        candidates = search_results[:TOP_K_INITIAL]
+        candidates = search_results[:adaptive_k_initial]
         print(f"Reranking top {len(candidates)} candidates...")
         
-        # Build query-document pairs for reranking
+        # Build query-document pairs for reranking (with caching)
         rerank_pairs = [(question, cand.text) for cand in candidates]
-        rerank_scores = RERANKER.predict(rerank_pairs)
         
-        # Apply boost rules for critical terms
-        boosted_scores = self._apply_boost_rules(question, candidates, rerank_scores)
+        # Check reranker cache
+        chunk_texts = [cand.text for cand in candidates]
+        cached_scores = self.cache_manager.get_reranker_scores(question, chunk_texts) if settings.enable_reranker_cache else None
+        
+        if cached_scores is not None and len(cached_scores) > 0:
+            rerank_scores = cached_scores
+            print("  Using cached reranker scores")
+        else:
+            rerank_scores = RERANKER.predict(rerank_pairs)
+            if settings.enable_reranker_cache:
+                self.cache_manager.set_reranker_scores(question, chunk_texts, rerank_scores.tolist())
+        
+        # Ensure rerank_scores is a list for consistent handling
+        if hasattr(rerank_scores, 'tolist'):
+            rerank_scores = rerank_scores.tolist()
+        
+        # Apply boost rules for critical terms (if enabled)
+        if settings.enable_boost_rules:
+            boosted_scores = self._apply_boost_rules(question, candidates, rerank_scores)
+            print("  Boost rules applied")
+        else:
+            boosted_scores = rerank_scores
+            print("  Boost rules disabled - using raw reranker scores")
         
         # Sort by boosted scores and take top candidates (add index to prevent comparison errors)
         indexed_results = list(zip(boosted_scores, candidates, range(len(candidates))))
         sorted_results = sorted(indexed_results, key=lambda x: (x[0], -x[2]), reverse=True)
-        candidates = [c for _, c, _ in sorted_results][:TOP_K_RERANKED]
+        candidates = [c for _, c, _ in sorted_results][:adaptive_reranked]
         
         # Include sibling chunks for numeric information
         candidates = self._include_sibling_chunks(question, candidates, search_results)
@@ -333,14 +501,14 @@ A:"""
             else:  # gemini
                 answer = self._generate_with_gemini_sync(question, context_str)
             
-            # Post-processing cleanup
-            answer = answer.replace("\n", " ").strip()
+            # Minimal post-processing (preserve formatting)
+            answer = answer.strip()
             
             # If answer is too short or "Not available", try with more context
             if len(answer.strip()) < 30 or "not available" in answer.lower():
                 print("  Answer too short, expanding context...")
                 # Use more chunks for a second attempt
-                additional_candidates = search_results[TOP_K_RERANKED:TOP_K_RERANKED+3]
+                additional_candidates = search_results[adaptive_reranked:adaptive_reranked+3]
                 if additional_candidates:
                     expanded_context = context_str + "\n\nADDITIONAL CONTEXT:\n" + "\n".join(
                         f"[{i+6}] {c.text}" for i, c in enumerate(additional_candidates)
@@ -361,7 +529,7 @@ ANSWER (look more carefully for any relevant details):"""
                         else:
                             retry_answer = self._generate_with_gemini_sync(question, retry_prompt)
                         
-                        retry_answer = retry_answer.replace("\n", " ").strip()
+                        retry_answer = retry_answer.strip()
                         if len(retry_answer.strip()) > len(answer.strip()):
                             answer = retry_answer
                             candidates.extend(additional_candidates)
@@ -414,12 +582,12 @@ ANSWER (look more carefully for any relevant details):"""
             max_retries = 2
             for attempt in range(max_retries):
                 try:
-                    # Update provider with concise generation settings
-                    self.provider.kwargs.update({"max_tokens": 60})
+                    # Update provider with configured token limit
+                    self.provider.kwargs.update({"max_tokens": self.max_tokens})
                     
                     response = await self.provider.generate_answer(
                         prompt=prompt,
-                        temperature=0.2  # Lower temperature for more consistent short answers
+                        temperature=self.temperature  # Use configured temperature
                     )
                     
                     if response.error:
@@ -429,8 +597,8 @@ ANSWER (look more carefully for any relevant details):"""
                             continue
                         raise Exception(response.error)
                     
-                    # Post-processing: keep only the first line
-                    return response.content.split("\n")[0].strip()
+                    # Return full response content (no truncation)
+                    return response.content.strip()
                     
                 except Exception as e:
                     if attempt < max_retries - 1:
@@ -458,24 +626,23 @@ ANSWER (look more carefully for any relevant details):"""
         """Generate answer using Gemini provider (synchronous)"""
         prompt = self._create_rag_prompt(question, context_str)
         
-        # Generation config for concise answers
+        # Generation config for comprehensive answers
         generation_config = {
-            "max_output_tokens": 60,
-            "temperature": 0.2,
-            "stop_sequences": ["\n"]  # Stop at first newline
+            "max_output_tokens": self.max_tokens,
+            "temperature": self.temperature  # Use configured temperature
         }
         
         # Generate response
         response = self.provider.generate_content(prompt, generation_config=generation_config)
         
-        # Extract answer and take only first line
+        # Extract full answer (no truncation)
         if hasattr(response, 'text'):
             answer = response.text.strip()
         else:
             answer = str(response).strip()
         
-        # Post-processing: keep only the first line
-        return answer.split("\n")[0].strip()
+        # Return full response
+        return answer
 
     def _generate_error_message(self, error: Exception) -> str:
         """Generate clear error message based on the type of error"""

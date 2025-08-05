@@ -1,6 +1,7 @@
 """
 API routes for the RAG application
 """
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.security import HTTPAuthorizationCredentials
 from typing import List
@@ -82,44 +83,82 @@ async def process_queries(
             print(f"  - Chunks created: {doc_result['document_stats']['chunk_count']}")
             print(f"  - Preserved definitions: {doc_result['document_stats']['preserved_definitions']}")
         
-        # Step 2: Answer each question
-        answers = []
-        print(f"Processing {len(request.questions)} questions")
+        # Step 2: Pre-warm embedding model for parallel processing
+        print(f"Pre-warming embedding model for parallel processing...")
+        embedding_warmup_start = time.time()
+        
+        # Ensure the embedding model is loaded before parallel processing
+        if not rag_coordinator.embedding_manager.ensure_model_ready():
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to initialize embedding model for parallel processing"
+            )
+        
+        embedding_warmup_time = time.time() - embedding_warmup_start
+        print(f"Embedding model ready in {embedding_warmup_time:.2f}s")
+        
+        # Step 3: Answer each question (PARALLEL PROCESSING)
+        print(f"Processing {len(request.questions)} questions in parallel")
         
         questions_start_time = time.time()
-        individual_times = []
         
-        for i, question in enumerate(request.questions):
+        # Create async tasks for all questions
+        async def process_single_question(i: int, question: str):
             print(f"  Question {i+1}: {question[:50]}...")
             
             # Use RAG pipeline to answer question
-            rag_response = rag_coordinator.answer_question(
+            rag_response = await rag_coordinator.answer_question_async(
                 question=question,
                 doc_id=doc_id,
-                k_retrieve=10,  # Retrieve top 10 chunks
+                k_retrieve=settings.k_retrieve,  # Use config value for consistency
                 max_context_length=6000  # Max context for LLM
             )
             
-            # Add clean answer to results
-            answers.append(rag_response.answer)
-            
-            # Track individual question time
-            individual_times.append(rag_response.processing_time)
-            
-            print(f"    Answer generated in {rag_response.processing_time:.2f}s")
+            print(f"    Question {i+1} answered in {rag_response.processing_time:.2f}s")
             print(f"    Used {len(rag_response.sources_used)} sources")
+            
+            return rag_response
+        
+        # Create semaphore to limit concurrent questions
+        semaphore = asyncio.Semaphore(settings.max_concurrent_questions)
+        
+        async def process_with_semaphore(i: int, question: str):
+            async with semaphore:
+                return await process_single_question(i, question)
+        
+        # Process all questions concurrently with limits
+        tasks = [
+            process_with_semaphore(i, question) 
+            for i, question in enumerate(request.questions)
+        ]
+        
+        # Wait for all questions to complete
+        rag_responses = await asyncio.gather(*tasks)
+        
+        # Extract answers and timing info
+        answers = [response.answer for response in rag_responses]
+        individual_times = [response.processing_time for response in rag_responses]
         
         # Calculate total times
         questions_processing_time = time.time() - questions_start_time
         total_processing_time = time.time() - total_start_time
         
-        # Display comprehensive time metrics
-        print(f"\n" + "="*60)
-        print(f"📊 PROCESSING COMPLETED - TIME METRICS")
-        print(f"="*60)
+        # Display comprehensive time metrics with parallel processing benefits
+        sequential_time_estimate = sum(individual_times)  # What it would have taken sequentially
+        parallel_speedup = sequential_time_estimate / questions_processing_time if questions_processing_time > 0 else 1
+        
+        print(f"\n" + "="*70)
+        print(f"PARALLEL PROCESSING COMPLETED - PERFORMANCE METRICS")
+        print(f"="*70)
         print(f"Document Processing Time: {doc_processing_time:.2f}s")
-        print(f"Questions Processing Time: {questions_processing_time:.2f}s")
+        print(f"Embedding Model Warmup: {embedding_warmup_time:.2f}s")
+        print(f"Questions Processing Time: {questions_processing_time:.2f}s (PARALLEL)")
         print(f"Total Processing Time: {total_processing_time:.2f}s")
+        
+        print(f"\nPARALLEL PROCESSING BENEFITS:")
+        print(f"  - Parallel Time: {questions_processing_time:.2f}s")
+        print(f"  - Concurrent Questions Limit: {settings.max_concurrent_questions}")
+        
         print(f"\nQuestion-by-Question Breakdown:")
         for i, q_time in enumerate(individual_times, 1):
             print(f"  Question {i}: {q_time:.2f}s")
@@ -128,8 +167,8 @@ async def process_queries(
         print(f"  - Average Time per Question: {sum(individual_times) / len(individual_times):.2f}s")
         print(f"  - Fastest Question: {min(individual_times):.2f}s")
         print(f"  - Slowest Question: {max(individual_times):.2f}s")
-        print(f"  - Questions per Second: {len(request.questions) / questions_processing_time:.2f}")
-        print(f"="*60)
+        print(f"  - Effective Questions per Second: {len(request.questions) / questions_processing_time:.2f}")
+        print(f"="*70)
         
         return QueryResponse(answers=answers)
         
@@ -311,7 +350,7 @@ async def upload_file_and_query(
                 rag_response = rag_coordinator.answer_question(
                     question=question,
                     doc_id=doc_id,
-                    k_retrieve=10,
+                    k_retrieve=settings.k_retrieve,
                     max_context_length=6000
                 )
                 answers.append(rag_response.answer)

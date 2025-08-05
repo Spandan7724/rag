@@ -1,6 +1,7 @@
 """
 RAG Coordinator - orchestrates the complete RAG pipeline
 """
+import asyncio
 import time
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from app.services.text_chunker import get_text_chunker, TextChunk
 from app.services.embedding_manager import get_embedding_manager
 from app.services.vector_store import get_vector_store
 from app.services.enhanced_answer_generator import get_enhanced_answer_generator as get_answer_generator
+from app.services.cache_manager import get_cache_manager
 from app.core.config import Settings
 
 settings = Settings()
@@ -35,8 +37,18 @@ class RAGCoordinator:
         self.embedding_manager = get_embedding_manager()
         self.vector_store = get_vector_store()
         self.answer_generator = get_answer_generator()
+        self.cache_manager = get_cache_manager()
         
-        print("RAG Coordinator initialized")
+        print("RAG Coordinator initialized with performance optimizations")
+        
+        # Pre-warm embedding model for better parallel processing performance
+        print("Pre-warming embedding model for optimal performance...")
+        try:
+            self.embedding_manager.ensure_model_ready()
+            print("Embedding model pre-warmed successfully")
+        except Exception as e:
+            print(f"Warning: Could not pre-warm embedding model: {e}")
+            print("   Model will be loaded on first use")
     
     async def process_document(self, url: str) -> Dict[str, Any]:
         """
@@ -144,7 +156,7 @@ class RAGCoordinator:
         max_context_length: int = 6000
     ) -> RAGResponse:
         """
-        Answer a question using the RAG pipeline
+        Optimized question answering with caching and performance improvements
         
         Args:
             question: Question to answer
@@ -157,21 +169,46 @@ class RAGCoordinator:
         """
         start_time = time.time()
         
+        # Check cache first
+        if settings.enable_result_caching:
+            cached_result = self.cache_manager.get_query_result(question, doc_id or "all", k_retrieve)
+            if cached_result:
+                print(f"🚀 CACHE HIT - returning cached result for: {question[:40]}...")
+                return RAGResponse(
+                    answer=cached_result["answer"],
+                    processing_time=cached_result["processing_time"],
+                    doc_id=doc_id or "all",
+                    sources_used=cached_result["sources_used"],
+                    pipeline_stats=cached_result["pipeline_stats"]
+                )
+        
         print(f"Processing question: {question}")
         if doc_id:
             print(f"Filtering by document: {doc_id}")
         
         try:
-            # Stage 1: Generate query embedding
+            # Stage 1: Generate query embedding (with potential caching)
             stage_start = time.time()
-            query_embedding = self.embedding_manager.encode_query(question)
+            
+            # Check embedding cache
+            cached_embedding = self.cache_manager.get_embedding(question) if settings.enable_embedding_cache else None
+            if cached_embedding:
+                query_embedding = cached_embedding
+                print("  Using cached query embedding")
+            else:
+                query_embedding = self.embedding_manager.encode_query(question)
+                if settings.enable_embedding_cache:
+                    self.cache_manager.set_embedding(question, query_embedding)
+            
             query_embedding_time = time.time() - stage_start
             
-            # Stage 2: Vector search
+            # Stage 2: Vector search (optimized k)
             stage_start = time.time()
+            effective_k = min(k_retrieve, settings.k_retrieve) if settings.fast_mode else settings.k_retrieve
+            
             search_results = self.vector_store.search(
                 query_embedding=query_embedding,
-                k=settings.k_retrieve,  # Use config value
+                k=effective_k,
                 doc_id_filter=doc_id
             )
             vector_search_time = time.time() - stage_start
@@ -226,7 +263,8 @@ class RAGCoordinator:
             print(f"  - Answer generation: {answer_generation_time:.2f}s")
             print(f"Answer: {answer_result.answer[:100]}...")
             
-            return RAGResponse(
+            # Prepare response
+            response = RAGResponse(
                 answer=answer_result.answer,
                 processing_time=total_time,
                 doc_id=doc_id or search_results[0].metadata.doc_id if search_results else "none",
@@ -234,18 +272,70 @@ class RAGCoordinator:
                 pipeline_stats=pipeline_stats
             )
             
+            # Cache the result for future queries
+            if settings.enable_result_caching:
+                cache_data = {
+                    "answer": response.answer,
+                    "processing_time": response.processing_time,
+                    "sources_used": response.sources_used,
+                    "pipeline_stats": response.pipeline_stats
+                }
+                self.cache_manager.set_query_result(question, doc_id or "all", k_retrieve, cache_data)
+            
+            return response
+            
         except Exception as e:
             print(f"Question answering failed: {str(e)}")
             raise
     
+    async def answer_question_async(
+        self, 
+        question: str, 
+        doc_id: Optional[str] = None,
+        k_retrieve: int = 10,
+        max_context_length: int = 6000
+    ) -> RAGResponse:
+        """
+        Async version of answer_question for parallel processing
+        
+        Args:
+            question: Question to answer
+            doc_id: Optional document ID to filter by
+            k_retrieve: Number of chunks to retrieve
+            max_context_length: Maximum context length for answer generation
+            
+        Returns:
+            RAGResponse with answer and metadata
+        """
+        # Run the synchronous answer_question in a thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, 
+            self.answer_question,
+            question,
+            doc_id,
+            k_retrieve,
+            max_context_length
+        )
+    
     def get_system_stats(self) -> Dict[str, Any]:
-        """Get overall system statistics"""
+        """Get comprehensive system statistics with performance metrics"""
         vector_stats = self.vector_store.get_stats()
+        cache_stats = self.cache_manager.get_cache_stats()
         
         return {
             "vector_store": vector_stats,
             "embedding_model": self.embedding_manager.get_model_info(),
             "answer_model": self.answer_generator.get_model_info(),
+            "cache_performance": cache_stats,
+            "optimization_settings": {
+                "fast_mode": settings.fast_mode,
+                "competition_mode": settings.competition_mode,
+                "result_caching": settings.enable_result_caching,
+                "embedding_caching": settings.enable_embedding_cache,
+                "k_retrieve": settings.k_retrieve,
+                "max_tokens": settings.llm_max_tokens
+            },
             "status": "ready"
         }
     

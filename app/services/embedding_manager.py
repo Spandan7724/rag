@@ -2,6 +2,7 @@
 Embedding service using BGE-M3 for text embeddings
 """
 import time
+import threading
 import torch
 import numpy as np
 from typing import List, Dict, Any, Optional
@@ -27,6 +28,8 @@ class EmbeddingManager:
         self.model = None
         self.device = settings.embedding_device
         self.model_name = settings.embedding_model
+        self._model_lock = threading.Lock()  # Thread-safe model loading
+        self._model_loaded = False  # Track model loading state
         
         print(f"Initializing embedding manager: {self.model_name}")
         print(f"Target device: {self.device}")
@@ -40,38 +43,58 @@ class EmbeddingManager:
             print(f"CUDA memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     
     def _load_model(self):
-        """Lazy load the BGE-M3 model"""
-        if self.model is not None:
+        """Thread-safe lazy load the BGE-M3 model"""
+        # Quick check without lock (double-checked locking pattern)
+        if self._model_loaded and self.model is not None:
             return
         
-        try:
-            print(f"Loading BGE-M3 model: {self.model_name}")
-            start_time = time.time()
+        with self._model_lock:
+            # Double-check inside the lock
+            if self._model_loaded and self.model is not None:
+                return
             
-            from FlagEmbedding import BGEM3FlagModel
-            
-            self.model = BGEM3FlagModel(
-                self.model_name,
-                use_fp16=True,  # Use half precision for faster inference
-                device=self.device
-            )
-            
-            load_time = time.time() - start_time
-            print(f"BGE-M3 model loaded successfully in {load_time:.2f}s")
-            
-            # Warm up the model
-            print("Warming up model...")
-            warmup_start = time.time()
-            self.model.encode(["This is a warmup text for the embedding model."])
-            warmup_time = time.time() - warmup_start
-            print(f"Model warmup completed in {warmup_time:.2f}s")
-            
-        except ImportError:
-            raise ImportError(
-                "FlagEmbedding not installed. Install with: pip install FlagEmbedding"
-            )
-        except Exception as e:
-            raise RuntimeError(f"Failed to load BGE-M3 model: {str(e)}")
+            try:
+                print(f"Loading BGE-M3 model (thread-safe): {self.model_name}")
+                start_time = time.time()
+                
+                from FlagEmbedding import BGEM3FlagModel
+                
+                # Use to_empty() to avoid meta tensor issues in multi-threading
+                self.model = BGEM3FlagModel(
+                    self.model_name,
+                    use_fp16=True,  # Use half precision for faster inference
+                    device=self.device
+                )
+                
+                load_time = time.time() - start_time
+                print(f"BGE-M3 model loaded successfully in {load_time:.2f}s")
+                
+                # Warm up the model
+                print("Warming up model...")
+                warmup_start = time.time()
+                self.model.encode(["This is a warmup text for the embedding model."])
+                warmup_time = time.time() - warmup_start
+                print(f"Model warmup completed in {warmup_time:.2f}s")
+                
+                # Mark as loaded
+                self._model_loaded = True
+                print(f"BGE-M3 model ready for parallel processing!")
+                
+            except ImportError:
+                raise ImportError(
+                    "FlagEmbedding not installed. Install with: pip install FlagEmbedding"
+                )
+            except Exception as e:
+                raise RuntimeError(f"Failed to load BGE-M3 model: {str(e)}")
+    
+    def ensure_model_ready(self):
+        """Ensure the model is loaded and ready for use"""
+        self._load_model()
+        return self._model_loaded
+    
+    def is_model_loaded(self) -> bool:
+        """Check if model is loaded without triggering loading"""
+        return self._model_loaded and self.model is not None
     
     def encode_texts(self, texts: List[str]) -> np.ndarray:
         """

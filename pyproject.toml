@@ -20,4 +20,10 @@ dependencies = [
     "google-generativeai>=0.8.0",
     "httpx>=0.28.1",
     "pytesseract>=0.3.13",
+    "pdfplumber>=0.11.7",
+    "tqdm>=4.67.1",
+    "docling>=2.7.0",
+    "easyocr>=1.7.2",
+    "opencv-python>=4.12.0.88",
+    "pymupdf4llm>=0.0.27",
 ]

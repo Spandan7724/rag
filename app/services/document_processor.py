@@ -272,43 +272,84 @@ class DocumentProcessor:
             open_time = time.time() - start_time
             print(f"PDF opened in {open_time:.2f}s")
             
-            # Extract text from all pages
+            # Extract text from all pages using hybrid processing
             text_parts = []
             page_texts = []
+            processing_stats = {
+                'text': 0,
+                'pdfplumber': 0,
+                'pymupdf_table': 0,
+                'ocr': 0
+            }
             
             for page_num in range(pdf_doc.page_count):
                 page = pdf_doc[page_num]
-                page_text = page.get_text()
                 
-                # OCR fallback for pages with minimal text (likely scanned/images)
-                if len(page_text.strip()) < 100:  # Less than 100 chars suggests scanned content
-                    print(f"  Page {page_num + 1}: Minimal text detected ({len(page_text)} chars), attempting OCR...")
-                    try:
-                        import pytesseract
-                        from PIL import Image
-                        import io
+                if settings.enable_hybrid_processing:
+                    # Analyze page content to determine processing strategy
+                    analysis = self.analyze_page_content(page)
+                    processing_method = analysis['processing_method']
+                    processing_stats[processing_method] += 1
+                    
+                    print(f"  Page {page_num + 1}: Using {processing_method} processing "
+                          f"(text: {analysis['text_length']} chars, tables: {analysis['table_count']})")
+                    
+                    # Process page based on analysis
+                    if processing_method == 'pdfplumber':
+                        # Use PDFPlumber for table extraction (primary method)
+                        page_text = page.get_text()  # Get basic text
+                        table_text = self.extract_tables_with_pdfplumber(pdf_data, page_num + 1)
                         
-                        # Get page as image
-                        pix = page.get_pixmap(matrix=pymupdf.Matrix(2.0, 2.0))  # 2x resolution for better OCR
-                        img_data = pix.tobytes("png")
-                        img = Image.open(io.BytesIO(img_data))
+                        # If PDFPlumber extraction is insufficient, note it but continue
+                        if not table_text or len(table_text.strip()) < 50:
+                            print(f"  Page {page_num + 1}: PDFPlumber table extraction insufficient")
                         
-                        # Extract text using OCR
-                        ocr_text = pytesseract.image_to_string(img, config='--psm 6')
-                        
+                        if table_text:
+                            page_text = f"{page_text}\n\n{table_text}"
+                    
+                    elif processing_method == 'pymupdf_table':
+                        # Use PyMuPDF table extraction
+                        page_text = page.get_text()  # Get basic text
+                        table_text = self.extract_tables_with_pymupdf(page)
+                        if table_text:
+                            page_text = f"{page_text}\n\n{table_text}"
+                    
+                    elif processing_method == 'ocr':
+                        # Use OCR for image-heavy pages
+                        page_text = self.extract_text_with_ocr(page)
+                        if not page_text or len(page_text.strip()) < 50:
+                            # Fallback to basic text if OCR fails
+                            page_text = page.get_text()
+                    
+                    else:  # processing_method == 'text'
+                        # Fast PyMuPDF text extraction
+                        page_text = page.get_text()
+                
+                else:
+                    # Legacy processing (fallback for disabled hybrid mode)
+                    page_text = page.get_text()
+                    
+                    # OCR fallback for pages with minimal text
+                    if len(page_text.strip()) < settings.text_threshold:
+                        print(f"  Page {page_num + 1}: Minimal text detected ({len(page_text)} chars), attempting OCR...")
+                        ocr_text = self.extract_text_with_ocr(page)
                         if len(ocr_text.strip()) > len(page_text.strip()):
                             print(f"  Page {page_num + 1}: OCR extracted {len(ocr_text)} chars (vs {len(page_text)} native)")
                             page_text = ocr_text
                         else:
                             print(f"  Page {page_num + 1}: OCR didn't improve extraction")
-                            
-                    except ImportError:
-                        print(f"  Page {page_num + 1}: OCR libraries not available (install: pip install pytesseract pillow)")
-                    except Exception as e:
-                        print(f"  Page {page_num + 1}: OCR failed: {e}")
                 
                 page_texts.append(f"--- Page {page_num + 1} ---\n{page_text}")
                 text_parts.append(page_text)
+            
+            # Print processing statistics
+            if settings.enable_hybrid_processing:
+                print(f"Processing statistics: {processing_stats}")
+                total_pages = sum(processing_stats.values())
+                if total_pages > 0:
+                    for method, count in processing_stats.items():
+                        if count > 0:
+                            print(f"  - {method}: {count} pages ({count/total_pages*100:.1f}%)")
             
             # Combine all text
             full_text = "\n".join(text_parts)
@@ -339,6 +380,525 @@ class DocumentProcessor:
             
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"PDF processing failed: {str(e)}")
+    
+    def analyze_page_content(self, page) -> Dict[str, Any]:
+        """
+        Analyze page content to determine optimal processing strategy
+        
+        Args:
+            page: PyMuPDF page object
+            
+        Returns:
+            Dict with analysis results and processing strategy
+        """
+        try:
+            # Get basic text content
+            page_text = page.get_text()
+            text_length = len(page_text.strip())
+            
+            # Quick table detection
+            table_finder = page.find_tables()
+            tables = list(table_finder)  # Convert TableFinder to list
+            has_tables = len(tables) > 0
+            
+            # Determine processing strategy
+            processing_method = self._determine_processing_method(
+                text_length, has_tables
+            )
+            
+            return {
+                'text_length': text_length,
+                'has_tables': has_tables,
+                'table_count': len(tables),
+                'processing_method': processing_method,
+                'is_image_heavy': text_length < settings.text_threshold
+            }
+            
+        except Exception as e:
+            print(f"Page analysis failed: {e}")
+            # Fallback to basic text processing
+            return {
+                'text_length': len(page.get_text()),
+                'has_tables': False,
+                'table_count': 0,
+                'has_ruled_tables': False,
+                'processing_method': 'text',
+                'is_image_heavy': False
+            }
+    
+    def _determine_processing_method(self, text_length: int, has_tables: bool) -> str:
+        """
+        Determine the optimal processing method based on page analysis
+        
+        Args:
+            text_length: Length of text content
+            has_tables: Whether page has tables
+            
+        Returns:
+            Processing method string
+        """
+        if not settings.enable_hybrid_processing:
+            return 'text'  # Default to current behavior
+        
+        if text_length < settings.text_threshold:
+            return 'ocr'  # PaddleOCR for image-heavy pages
+        elif has_tables:
+            if settings.table_extraction_method == "auto":
+                # PDFPlumber-first approach for better table accuracy
+                return 'pdfplumber'  # Primary choice for all table types
+            elif settings.table_extraction_method == "pdfplumber":
+                return 'pdfplumber'  # Direct PDFPlumber selection
+            else:
+                return settings.table_extraction_method  # Use configured method
+        else:
+            return 'text'  # Fast PyMuPDF text extraction
+    
+    
+    def extract_tables_with_pymupdf(self, page) -> str:
+        """
+        Extract tables from a page using PyMuPDF
+        
+        Args:
+            page: PyMuPDF page object
+            
+        Returns:
+            Formatted table text
+        """
+        try:
+            table_finder = page.find_tables()
+            tables = list(table_finder)  # Convert TableFinder to list
+            if not tables:
+                return ""
+            
+            formatted_text = []
+            for i, table in enumerate(tables):
+                formatted_text.append(f"\n--- Table {i+1} (PyMuPDF) ---")
+                
+                # Extract table content
+                table_data = table.extract()
+                if table_data:
+                    # Format as text table
+                    for row in table_data:
+                        if row:  # Skip empty rows
+                            row_text = " | ".join(str(cell) if cell else "" for cell in row)
+                            formatted_text.append(row_text)
+                
+                formatted_text.append("")  # Add spacing between tables
+            
+            return "\n".join(formatted_text)
+            
+        except Exception as e:
+            print(f"PyMuPDF table extraction failed: {e}")
+            return ""
+    
+    def extract_text_with_ocr(self, page) -> str:
+        """
+        Extract text from page using OCR (configurable provider)
+        
+        Args:
+            page: PyMuPDF page object
+            
+        Returns:
+            Extracted text
+        """
+        if settings.ocr_provider == "rapidocr":
+            return self._extract_with_rapidocr(page)
+        elif settings.ocr_provider == "paddleocr":
+            return self._extract_with_paddleocr(page)
+        else:
+            return self._extract_with_tesseract(page)
+    
+    def _extract_with_tesseract(self, page) -> str:
+        """
+        Fallback OCR extraction using Tesseract
+        
+        Args:
+            page: PyMuPDF page object
+            
+        Returns:
+            Extracted text
+        """
+        try:
+            import pytesseract
+            from PIL import Image
+            import io
+            
+            # Get page as image
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(2.0, 2.0))
+            img_data = pix.tobytes("png")
+            img = Image.open(io.BytesIO(img_data))
+            
+            # Extract text using OCR
+            ocr_text = pytesseract.image_to_string(img, config='--psm 6')
+            return ocr_text
+            
+        except Exception as e:
+            print(f"Tesseract OCR failed: {e}")
+            return ""
+    
+    def _extract_with_paddleocr(self, page) -> str:
+        """
+        Extract text from page using PaddleOCR with GPU support
+        
+        Args:
+            page: PyMuPDF page object
+            
+        Returns:
+            Extracted text
+        """
+        try:
+            import paddleocr
+            import paddle
+            from PIL import Image
+            import io
+            import numpy as np
+            
+            # Initialize PaddleOCR (cached in class if needed)
+            if not hasattr(self, '_paddle_ocr'):
+                # Set GPU device if available and enabled
+                if settings.use_gpu_ocr and paddle.device.is_compiled_with_cuda():
+                    paddle.device.set_device('gpu:0')
+                    print("PaddleOCR: Using GPU acceleration")
+                else:
+                    paddle.device.set_device('cpu')
+                    print("PaddleOCR: Using CPU mode")
+                
+                # Initialize PaddleOCR
+                self._paddle_ocr = paddleocr.PaddleOCR(
+                    use_textline_orientation=True,  # Updated parameter name
+                    lang='en'
+                )
+            
+            # Get page as image with higher resolution for better OCR
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(2.0, 2.0))
+            img_data = pix.tobytes("png")
+            img = Image.open(io.BytesIO(img_data))
+            
+            # Convert PIL image to numpy array for PaddleOCR
+            img_np = np.array(img)
+            
+            # Extract text using PaddleOCR
+            result = self._paddle_ocr.predict(img_np)
+            
+            # Parse results and extract text
+            extracted_text = []
+            if result and len(result) > 0:
+                page_result = result[0]  # First page result
+                
+                # Extract texts and scores from the new PaddleOCR format
+                if 'rec_texts' in page_result and 'rec_scores' in page_result:
+                    texts = page_result['rec_texts']
+                    scores = page_result['rec_scores']
+                    
+                    for text, score in zip(texts, scores):
+                        if score > 0.5:  # Filter low confidence results
+                            extracted_text.append(text)
+            
+            return '\n'.join(extracted_text)
+            
+        except Exception as e:
+            print(f"PaddleOCR failed: {e}")
+            # Fallback to Tesseract if PaddleOCR fails
+            return self._extract_with_tesseract(page)
+    
+    def _extract_with_rapidocr(self, page) -> str:
+        """
+        Extract text from page using RapidOCR with GPU support
+        
+        Args:
+            page: PyMuPDF page object
+            
+        Returns:
+            Extracted text
+        """
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            from PIL import Image
+            import io
+            import numpy as np
+            
+            # Initialize RapidOCR (cached in class if needed)
+            if not hasattr(self, '_rapid_ocr'):
+                # Configure providers based on GPU settings
+                if settings.use_gpu_ocr:
+                    # Use GPU providers with fallback to CPU
+                    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                    print("RapidOCR: Using GPU acceleration (CUDA + TensorRT)")
+                else:
+                    # CPU only
+                    providers = ["CPUExecutionProvider"]
+                    print("RapidOCR: Using CPU mode")
+                
+                self._rapid_ocr = RapidOCR(providers=providers)
+            
+            # Get page as image with higher resolution for better OCR
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(2.0, 2.0))
+            img_data = pix.tobytes("png")
+            img = Image.open(io.BytesIO(img_data))
+            
+            # Convert PIL image to numpy array for RapidOCR
+            img_np = np.array(img)
+            
+            # Extract text using RapidOCR
+            result, elapsed = self._rapid_ocr(img_np)
+            
+            # Parse results and extract text
+            extracted_text = []
+            if result:
+                for detection in result:
+                    # RapidOCR returns: [bbox, text, confidence]
+                    if len(detection) >= 3:
+                        text = detection[1]
+                        confidence = detection[2]
+                        if confidence > 0.5:  # Filter low confidence results
+                            extracted_text.append(text)
+            
+            return '\n'.join(extracted_text)
+            
+        except Exception as e:
+            print(f"RapidOCR failed: {e}")
+            # Fallback to PaddleOCR if RapidOCR fails
+            return self._extract_with_paddleocr(page)
+    
+    def _clean_dataframe(self, df) -> Any:
+        """
+        Clean DataFrame by removing empty rows and columns
+        
+        Args:
+            df: pandas DataFrame
+            
+        Returns:
+            Cleaned DataFrame
+        """
+        try:
+            import pandas as pd
+            
+            if df.empty:
+                return df
+            
+            # Make a copy to avoid modifying the original
+            df_clean = df.copy()
+            
+            # Convert all values to strings and clean
+            for col in df_clean.columns:
+                df_clean[col] = df_clean[col].apply(lambda x: str(x).strip() if pd.notna(x) and x != '' else '')
+            
+            # Remove completely empty rows
+            df_clean = df_clean[df_clean.apply(lambda row: any(cell != '' for cell in row), axis=1)]
+            
+            # Remove completely empty columns
+            df_clean = df_clean.loc[:, df_clean.apply(lambda col: any(cell != '' for cell in col), axis=0)]
+            
+            return df_clean
+            
+        except Exception as e:
+            print(f"DataFrame cleaning failed: {e}")
+            # Return original DataFrame if cleaning fails
+            return df
+    
+    def _format_dataframe_as_table(self, df) -> str:
+        """
+        Format DataFrame as a well-structured table string
+        
+        Args:
+            df: pandas DataFrame
+            
+        Returns:
+            Formatted table string
+        """
+        try:
+            import pandas as pd
+            
+            if df.empty:
+                return ""
+            
+            # Convert all cells to strings and clean them
+            df_str = df.astype(str)
+            
+            # Smart column width calculation
+            num_cols = len(df_str.columns)
+            col_widths = []
+            
+            for i, col in enumerate(df_str.columns):
+                header_text = str(col) if col else f"Col_{i+1}"
+                header_width = len(header_text)
+                
+                # Calculate max content width for this column
+                max_content_width = 0
+                if len(df_str[col]) > 0:
+                    for cell in df_str[col]:
+                        cell_lines = str(cell).split('\n')
+                        max_line_width = max(len(line) for line in cell_lines) if cell_lines else 0
+                        max_content_width = max(max_content_width, max_line_width)
+                
+                # Set reasonable column widths based on position and content
+                if i == 0:  # First column (Sr. No.) - keep narrow
+                    col_width = max(header_width, min(max_content_width, 15))
+                elif i == 1:  # Second column (Treatment Methods) - medium width
+                    col_width = max(header_width, min(max_content_width, 60))
+                else:  # Other columns - flexible width
+                    col_width = max(header_width, min(max_content_width, 80))
+                
+                col_widths.append(max(col_width, 8))  # Minimum width of 8
+            
+            # Format header
+            formatted_lines = []
+            if num_cols > 1:
+                header_cells = []
+                for i, col in enumerate(df_str.columns):
+                    header_text = str(col) if col else f"Col_{i+1}"
+                    # Clean up header text
+                    header_text = ' '.join(header_text.split())  # Remove extra whitespace
+                    header_cells.append(header_text.ljust(col_widths[i]))
+                
+                header_line = " | ".join(header_cells)
+                formatted_lines.append(header_line)
+                formatted_lines.append("-" * len(header_line))
+            
+            # Format data rows with better text handling
+            for _, row in df_str.iterrows():
+                # Handle multi-line cells by processing each line
+                max_lines = 1
+                processed_cells = []
+                
+                for i, cell in enumerate(row):
+                    cell_text = str(cell) if pd.notna(cell) and cell != 'nan' and cell != '' else ""
+                    # Clean up cell text
+                    cell_text = ' '.join(cell_text.split())  # Remove extra whitespace
+                    
+                    # Handle long content with intelligent wrapping
+                    if len(cell_text) > col_widths[i]:
+                        # For long content, wrap intelligently
+                        wrapped_lines = []
+                        remaining = cell_text
+                        while remaining:
+                            if len(remaining) <= col_widths[i]:
+                                wrapped_lines.append(remaining)
+                                break
+                            else:
+                                # Try to break at word boundary
+                                break_point = col_widths[i]
+                                space_pos = remaining.rfind(' ', 0, break_point)
+                                if space_pos > col_widths[i] * 0.7:  # Good break point found
+                                    wrapped_lines.append(remaining[:space_pos])
+                                    remaining = remaining[space_pos + 1:]
+                                else:
+                                    # No good break point, just cut
+                                    wrapped_lines.append(remaining[:break_point])
+                                    remaining = remaining[break_point:]
+                        processed_cells.append(wrapped_lines)
+                        max_lines = max(max_lines, len(wrapped_lines))
+                    else:
+                        processed_cells.append([cell_text])
+                
+                # Output the row(s)
+                for line_idx in range(max_lines):
+                    row_cells = []
+                    for i, cell_lines in enumerate(processed_cells):
+                        if line_idx < len(cell_lines):
+                            text = cell_lines[line_idx]
+                        else:
+                            text = ""
+                        row_cells.append(text.ljust(col_widths[i]))
+                    
+                    row_line = " | ".join(row_cells)
+                    if row_line.strip():  # Only add non-empty rows
+                        formatted_lines.append(row_line)
+            
+            return "\n".join(formatted_lines)
+            
+        except Exception as e:
+            print(f"DataFrame formatting failed: {e}")
+            # Fallback to simple string conversion
+            return df.to_string(index=False, header=True)
+    
+    def extract_tables_with_pdfplumber(self, pdf_data: bytes, page_num: int) -> str:
+        """
+        Extract tables from a specific page using PDFPlumber
+        
+        Args:
+            pdf_data: PDF content as bytes
+            page_num: Page number (0-indexed for PDFPlumber)
+            
+        Returns:
+            Formatted table text
+        """
+        try:
+            import pdfplumber
+            import io
+            import pandas as pd
+            
+            with pdfplumber.open(io.BytesIO(pdf_data)) as pdf:
+                if page_num - 1 >= len(pdf.pages):
+                    return ""
+                
+                page = pdf.pages[page_num - 1]  # Convert to 0-indexed
+                
+                # Simple, reliable PDFPlumber table extraction
+                tables = page.extract_tables()
+                
+                if not tables:
+                    return ""
+                
+                # Format tables as text
+                formatted_text = []
+                for i, table in enumerate(tables):
+                    if table and len(table) > 0:
+                        # Convert to DataFrame for easier manipulation
+                        # Handle duplicate or missing column names
+                        if table[0] and all(col for col in table[0]):  # Has valid headers
+                            headers = table[0]
+                            # Fix duplicate column names
+                            seen_cols = {}
+                            unique_headers = []
+                            for col in headers:
+                                col_str = str(col).strip()
+                                if col_str in seen_cols:
+                                    seen_cols[col_str] += 1
+                                    unique_headers.append(f"{col_str}_{seen_cols[col_str]}")
+                                else:
+                                    seen_cols[col_str] = 0
+                                    unique_headers.append(col_str)
+                            df = pd.DataFrame(table[1:], columns=unique_headers)
+                        else:
+                            # Generate column names for tables without headers
+                            num_cols = len(table[0]) if table[0] else len(table[1]) if len(table) > 1 else 1
+                            df = pd.DataFrame(table, columns=[f"Col_{i+1}" for i in range(num_cols)])
+                        
+                        # Clean the DataFrame
+                        df = self._clean_dataframe(df)
+                        
+                        if not df.empty:
+                            formatted_text.append(f"\n--- Table {i+1} (Page {page_num}, PDFPlumber) ---")
+                            
+                            try:
+                                # Format with better structure
+                                table_str = self._format_dataframe_as_table(df)
+                                if table_str.strip():
+                                    formatted_text.append(table_str)
+                                else:
+                                    # Fallback to simple text representation
+                                    formatted_text.append(str(df.to_string(index=False)))
+                            except Exception as format_error:
+                                print(f"DataFrame formatting failed: {format_error}")
+                                # Final fallback - basic table representation
+                                try:
+                                    formatted_text.append(str(df.to_string(index=False)))
+                                except:
+                                    # Last resort - just show the raw table data
+                                    formatted_text.append(f"Table data (raw): {table}")
+                            
+                            formatted_text.append("")  # Add spacing between tables
+                
+                return "\n".join(formatted_text)
+                
+        except ImportError:
+            print("PDFPlumber not available, falling back to PyMuPDF")
+            return ""
+        except Exception as e:
+            print(f"PDFPlumber table extraction failed for page {page_num}: {e}")
+            return ""
+    
     
     def save_pdf_blob(self, pdf_data: bytes, url: str, metadata: Dict[str, Any]) -> Optional[str]:
         """
