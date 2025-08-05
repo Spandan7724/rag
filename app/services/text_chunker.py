@@ -20,7 +20,15 @@ class TextChunk:
     page: int
     heading: str
     section_number: Optional[str] = None
-    chunk_type: str = "content"  # content, definition, section_header
+    chunk_type: str = "content"  # content, definition, section_header, table
+    
+    # Enhanced semantic metadata
+    parent_sections: Optional[List[str]] = None  # ["3", "3.2", "3.22"] - hierarchical path
+    section_hierarchy: Optional[str] = None      # "Definitions > Grace Period" - readable path
+    semantic_completeness: float = 1.0           # 0.0-1.0 score for how complete this chunk is
+    preservation_reason: Optional[str] = None    # Why this chunk was preserved intact
+    has_definitions: bool = False                # Whether chunk contains definition patterns
+    table_structure: Optional[Dict[str, Any]] = None  # Table metadata if applicable
 
 
 class TextChunker:
@@ -38,34 +46,52 @@ class TextChunker:
     
     def detect_section_headers(self, text: str) -> List[Tuple[int, str, str]]:
         """
-        Detect section headers and their positions
+        Enhanced section header detection with comprehensive patterns
         
         Returns:
             List of (position, section_number, heading) tuples
         """
         headers = []
         
-        # Pattern for numbered sections (3.1, 3.22, etc.)
-        section_pattern = r'^(\d+\.\d+\.?)\s+(.+?)(?=\n|$)'
+        # Enhanced patterns for better coverage
+        patterns = [
+            # Multi-level numbered sections (3.1, 3.1.1, 3.22.1, etc.)
+            (r'^(\d+\.\d+\.?\d*\.?)\s+(.+?)(?=\n|$)', 'numbered_subsection'),
+            
+            # Main sections (1. PREAMBLE, 2. OPERATIVE CLAUSE, etc.)
+            (r'^(\d+\.)\s+([A-Z][A-Z\s]+)(?=\n|$)', 'main_section'),
+            
+            # Letter-based subsections (a), (b), (i), (ii), etc.)
+            (r'^\(([a-z])\)\s+(.+?)(?=\n|$)', 'letter_subsection'),
+            (r'^\(([ivx]+)\)\s+(.+?)(?=\n|$)', 'roman_subsection'),
+            
+            # Schedule and Appendix sections
+            (r'^(SCHEDULE\s+[A-Z]+)\s*:?\s*(.+?)(?=\n|$)', 'schedule'),
+            (r'^(APPENDIX\s+[A-Z]+)\s*:?\s*(.+?)(?=\n|$)', 'appendix'),
+            
+            # Definition headers (for better definition detection)
+            (r'^(\d+\.\d+\.?\d*\.?)\s+(.*(?:means|definition|defined as).*)(?=\n|$)', 'definition_header'),
+            
+            # Table of contents style
+            (r'^([A-Z][A-Z\s]+)\s*\.{3,}\s*\d+', 'toc_entry'),
+        ]
         
-        for match in re.finditer(section_pattern, text, re.MULTILINE):
-            pos = match.start()
-            section_num = match.group(1).rstrip('.')
-            heading = match.group(2).strip()
-            headers.append((pos, section_num, heading))
+        for pattern, pattern_type in patterns:
+            for match in re.finditer(pattern, text, re.MULTILINE | re.IGNORECASE):
+                pos = match.start()
+                section_num = match.group(1).rstrip('.')
+                heading = match.group(2).strip() if len(match.groups()) > 1 else ""
+                
+                # Add pattern type as metadata (we'll use this later)
+                headers.append((pos, section_num, heading, pattern_type))
         
-        # Pattern for main sections (1. PREAMBLE, 2. OPERATIVE CLAUSE, etc.)
-        main_section_pattern = r'^(\d+\.)\s+([A-Z][A-Z\s]+)(?=\n|$)'
-        
-        for match in re.finditer(main_section_pattern, text, re.MULTILINE):
-            pos = match.start()
-            section_num = match.group(1).rstrip('.')
-            heading = match.group(2).strip()
-            headers.append((pos, section_num, heading))
-        
-        # Sort by position
+        # Sort by position and remove duplicates
+        headers = list(set(headers))
         headers.sort(key=lambda x: x[0])
-        return headers
+        
+        # Convert back to original format but keep the enhanced data
+        enhanced_headers = [(pos, section_num, heading) for pos, section_num, heading, _ in headers]
+        return enhanced_headers
     
     def extract_page_numbers(self, text: str) -> Dict[int, int]:
         """
@@ -219,9 +245,11 @@ class TextChunker:
         char_end: int,
         page_map: Dict[int, int],
         headers: List[Tuple[int, str, str]],
-        chunk_type: str = "content"
+        chunk_type: str = "content",
+        parent_sections: Optional[List[str]] = None,
+        preservation_reason: Optional[str] = None
     ) -> TextChunk:
-        """Create a TextChunk with proper metadata"""
+        """Create a TextChunk with enhanced semantic metadata"""
         
         # Get page number
         page = self.get_page_for_position(char_start, page_map)
@@ -232,6 +260,24 @@ class TextChunker:
         # Count tokens
         token_count = self.count_tokens(text)
         
+        # Build section hierarchy
+        if parent_sections is None:
+            parent_sections = self._build_section_hierarchy(char_start, headers)
+        
+        section_hierarchy = self._build_readable_hierarchy(parent_sections, headers)
+        
+        # Detect definitions in chunk
+        has_definitions = self._chunk_has_definitions(text)
+        
+        # Calculate semantic completeness
+        semantic_completeness = self._calculate_semantic_completeness(text, chunk_type)
+        
+        # Detect table structure if applicable
+        table_structure = None
+        if chunk_type == "table" or self._is_table_content(text):
+            table_structure = self._analyze_table_structure(text)
+            chunk_type = "table"
+        
         return TextChunk(
             chunk_id=chunk_id,
             text=text.strip(),
@@ -241,76 +287,132 @@ class TextChunker:
             page=page,
             heading=heading,
             section_number=section_num,
-            chunk_type=chunk_type
+            chunk_type=chunk_type,
+            parent_sections=parent_sections,
+            section_hierarchy=section_hierarchy,
+            semantic_completeness=semantic_completeness,
+            preservation_reason=preservation_reason,
+            has_definitions=has_definitions,
+            table_structure=table_structure
         )
     
     def chunk_text(self, text: str, document_metadata: Dict[str, Any]) -> List[TextChunk]:
         """
-        Chunk text into small uniform chunks
+        Semantic-aware chunking that respects document structure
+        
+        This method implements recursive semantic chunking:
+        1. First preserves complete definitions and important sections
+        2. Then chunks remaining text by section boundaries
+        3. Uses hierarchical splitting: sections → paragraphs → sentences
+        4. Maintains semantic completeness and context
         
         Args:
             text: Full document text
             document_metadata: Document metadata
             
         Returns:
-            List of TextChunk objects
+            List of TextChunk objects with enhanced semantic metadata
         """
-        print(f"Starting uniform text chunking...")
+        print(f"Starting semantic text chunking...")
         print(f"Document length: {len(text):,} characters")
         print(f"Target: {self.max_tokens} tokens per chunk with {self.overlap_tokens} token overlap")
         
-        # Simple page detection for metadata
+        # Extract structural elements
         page_map = self.extract_page_numbers(text)
         headers = self.detect_section_headers(text)
+        preserve_sections = self.preserve_definitions(text, headers)  # FIXED: Actually use this!
+        
+        print(f"Detected {len(headers)} section headers")
+        print(f"Found {len(preserve_sections)} sections to preserve intact")
         
         chunks = []
         chunk_id = 0
-        pos = 0
+        processed_ranges = set()
         
-        while pos < len(text):
-            # Calculate rough character end based on token estimate (1 token ≈ 4 chars)
-            target_end = min(pos + self.max_tokens * 4, len(text))
-            
-            # Smart chunking to preserve table structure
-            chunk_end = self._find_smart_break_point(text, pos, target_end)
-            
-            # Extract chunk text and preserve structure
-            chunk_text = text[pos:chunk_end].strip()
-            
-            # Detect and mark table chunks
-            chunk_type = "table" if self._is_table_content(chunk_text) else "content"
-            
-            if chunk_text:  # Only create non-empty chunks
-                chunk = self.create_chunk(
-                    chunk_id=chunk_id,
-                    text=chunk_text,
-                    char_start=pos,
-                    char_end=chunk_end,
-                    page_map=page_map,
-                    headers=headers,
-                    chunk_type=chunk_type
-                )
-                
-                chunks.append(chunk)
-                chunk_id += 1
-                
-                # Move position with overlap (convert tokens to approximate chars)
-                overlap_chars = self.overlap_tokens * 4
-                pos = max(chunk_end - overlap_chars, pos + 1)
-            else:
-                pos = chunk_end
+        # Step 1: Handle preserved sections (definitions, important clauses)
+        for start, end, reason in preserve_sections:
+            preserved_text = text[start:end].strip()
+            if preserved_text:
+                # Validate preserved section isn't too large
+                token_count = self.count_tokens(preserved_text)
+                if token_count <= self.max_tokens * 1.5:  # Allow 50% overflow for definitions
+                    chunk = self.create_chunk(
+                        chunk_id=chunk_id,
+                        text=preserved_text,
+                        char_start=start,
+                        char_end=end,
+                        page_map=page_map,
+                        headers=headers,
+                        chunk_type="definition",
+                        preservation_reason=reason
+                    )
+                    chunks.append(chunk)
+                    processed_ranges.update(range(start, end))
+                    chunk_id += 1
+                    print(f"Preserved definition chunk: {reason[:50]}...")
+                else:
+                    print(f"Warning: Preserved section too large ({token_count} tokens), will be split")
         
-        # Final statistics  
+        # Step 2: Process remaining text by sections using recursive chunking
+        section_ranges = self._get_section_ranges(headers, len(text))
+        
+        for i, (section_start, section_end, section_num, section_heading) in enumerate(section_ranges):
+            # Skip if this section is largely already preserved
+            section_size = section_end - section_start
+            
+            # Skip empty sections
+            if section_size <= 0:
+                continue
+            
+            section_processed = sum(1 for pos in range(section_start, section_end) 
+                                  if pos in processed_ranges)
+            
+            # Prevent division by zero
+            if section_size > 0 and section_processed / section_size > 0.8:  # 80% already processed
+                continue
+            
+            # Get unprocessed parts of this section
+            section_text = text[section_start:section_end]
+            section_chunks = self._chunk_section_recursive(
+                section_text, 
+                section_start, 
+                section_num, 
+                section_heading,
+                page_map, 
+                headers, 
+                chunk_id,
+                processed_ranges
+            )
+            
+            chunks.extend(section_chunks)
+            chunk_id += len(section_chunks)
+            
+            # Mark this section as processed
+            processed_ranges.update(range(section_start, section_end))
+        
+        # Step 3: Handle any remaining unprocessed text (edge cases)
+        remaining_chunks = self._process_remaining_text(
+            text, processed_ranges, page_map, headers, chunk_id
+        )
+        chunks.extend(remaining_chunks)
+        
+        # Validation and post-processing
+        chunks = self._validate_and_fix_chunks(chunks)
+        
+        # Enhanced statistics
         total_tokens = sum(chunk.token_count for chunk in chunks)
         avg_tokens = total_tokens / len(chunks) if chunks else 0
-        table_chunks = sum(1 for chunk in chunks if chunk.chunk_type == "table")
+        chunk_types = {}
+        for chunk in chunks:
+            chunk_types[chunk.chunk_type] = chunk_types.get(chunk.chunk_type, 0) + 1
         
-        print(f"Smart chunking completed:")
+        print(f"Semantic chunking completed:")
         print(f"  - Total chunks: {len(chunks)}")
-        print(f"  - Table chunks: {table_chunks}")
-        print(f"  - Total tokens: {total_tokens:,}")
         print(f"  - Average tokens per chunk: {avg_tokens:.1f}")
-        print(f"  - Chunk size optimized for short clauses (<600 chars)")
+        print(f"  - Chunk types: {dict(chunk_types)}")
+        print(f"  - Preserved definitions: {chunk_types.get('definition', 0)}")
+        print(f"  - Table chunks: {chunk_types.get('table', 0)}")
+        print(f"  - Content chunks: {chunk_types.get('content', 0)}")
         
         return chunks
     
@@ -369,6 +471,533 @@ class TextChunker:
             table_indicators += 1
         
         return table_indicators >= 2
+    
+    def _build_section_hierarchy(self, char_pos: int, headers: List[Tuple[int, str, str]]) -> List[str]:
+        """Build hierarchical section path for a character position"""
+        hierarchy = []
+        
+        for header_pos, section_num, heading in headers:
+            if header_pos <= char_pos:
+                # This header comes before our position
+                parts = section_num.split('.')
+                
+                # Build hierarchy - only add if it's a parent of existing or new branch
+                if not hierarchy:
+                    hierarchy = parts
+                else:
+                    # Check if this is a parent, sibling, or child
+                    common_parts = 0
+                    for i, part in enumerate(parts):
+                        if i < len(hierarchy) and hierarchy[i] == part:
+                            common_parts += 1
+                        else:
+                            break
+                    
+                    # Keep only the common part and add new parts
+                    hierarchy = hierarchy[:common_parts] + parts[common_parts:]
+            else:
+                break
+        
+        return hierarchy
+    
+    def _build_readable_hierarchy(self, parent_sections: List[str], headers: List[Tuple[int, str, str]]) -> str:
+        """Build a readable hierarchy string"""
+        if not parent_sections:
+            return ""
+        
+        # Map section numbers to headings
+        section_to_heading = {}
+        for _, section_num, heading in headers:
+            section_to_heading[section_num] = heading
+        
+        # Build readable path
+        path_parts = []
+        for i, section in enumerate(parent_sections):
+            section_key = '.'.join(parent_sections[:i+1])
+            heading = section_to_heading.get(section_key, f"Section {section_key}")
+            path_parts.append(heading)
+        
+        return " > ".join(path_parts)
+    
+    def _chunk_has_definitions(self, text: str) -> bool:
+        """Check if chunk contains definition patterns"""
+        definition_patterns = [
+            r'\bmeans\b',
+            r'\bdefined as\b',
+            r'\brefers to\b',
+            r'\bshall mean\b',
+            r'\bin this policy\b.*\bmeans\b',
+        ]
+        
+        text_lower = text.lower()
+        return any(re.search(pattern, text_lower) for pattern in definition_patterns)
+    
+    def _calculate_semantic_completeness(self, text: str, chunk_type: str) -> float:
+        """Calculate how semantically complete a chunk is (0.0 to 1.0)"""
+        score = 1.0
+        
+        # Check for incomplete sentences
+        if not text.strip().endswith(('.', '!', '?', ':', ';')):
+            score -= 0.2
+        
+        # Check for incomplete paragraphs
+        if text.startswith(' ') or not text[0].isupper():
+            score -= 0.1
+        
+        # Check for broken lists or numbered items
+        if re.search(r'\n\s*\d+\.\s*$', text) or re.search(r'\n\s*[a-z]\)\s*$', text):
+            score -= 0.3
+        
+        # Bonus for definitions (they should be complete)
+        if chunk_type == "definition":
+            if "means" in text.lower() and text.strip().endswith('.'):
+                score = 1.0
+        
+        return max(0.0, score)
+    
+    def _analyze_table_structure(self, text: str) -> Dict[str, Any]:
+        """Analyze table structure and return metadata"""
+        lines = text.split('\n')
+        structure = {
+            'rows': len(lines),
+            'has_headers': False,
+            'alignment_pattern': None,
+            'column_indicators': [],
+            'table_type': 'unknown'
+        }
+        
+        # Detect headers (usually first line with specific patterns)
+        if lines and any(indicator in lines[0].lower() for indicator in 
+                        ['plan', 'coverage', 'benefit', 'sum insured', 'premium']):
+            structure['has_headers'] = True
+        
+        # Detect alignment patterns
+        space_patterns = [line.count('  ') for line in lines[:5]]  # Check first 5 lines
+        if space_patterns and max(space_patterns) > 2:
+            structure['alignment_pattern'] = 'spaces'
+        elif any('\t' in line for line in lines[:3]):
+            structure['alignment_pattern'] = 'tabs'
+        
+        # Detect table type
+        text_lower = text.lower()
+        if 'premium' in text_lower and '%' in text:
+            structure['table_type'] = 'premium_rates'
+        elif 'sum insured' in text_lower:
+            structure['table_type'] = 'coverage_limits'
+        elif 'plan' in text_lower and any(c in text for c in ['a', 'b', 'c']):
+            structure['table_type'] = 'plan_comparison'
+        
+        return structure
+    
+    def _get_section_ranges(self, headers: List[Tuple[int, str, str]], text_length: int) -> List[Tuple[int, int, str, str]]:
+        """Get section ranges with start, end, section_num, heading"""
+        ranges = []
+        
+        for i, (pos, section_num, heading) in enumerate(headers):
+            start = pos
+            end = headers[i + 1][0] if i + 1 < len(headers) else text_length
+            ranges.append((start, end, section_num, heading))
+        
+        return ranges
+    
+    def _chunk_section_recursive(
+        self, 
+        section_text: str, 
+        base_offset: int, 
+        section_num: str, 
+        section_heading: str,
+        page_map: Dict[int, int], 
+        headers: List[Tuple[int, str, str]], 
+        start_chunk_id: int,
+        processed_ranges: set
+    ) -> List[TextChunk]:
+        """
+        Recursively chunk a section using hierarchical splitting:
+        1. Try to keep section intact if small enough
+        2. Split by paragraphs (double newlines)
+        3. Split by sentences if paragraphs too large
+        4. Use token-based splitting as last resort
+        """
+        chunks = []
+        chunk_id = start_chunk_id
+        
+        # Check if entire section fits in one chunk
+        section_tokens = self.count_tokens(section_text)
+        if section_tokens <= self.max_tokens:
+            chunk = self.create_chunk(
+                chunk_id=chunk_id,
+                text=section_text,
+                char_start=base_offset,
+                char_end=base_offset + len(section_text),
+                page_map=page_map,
+                headers=headers,
+                chunk_type="content",
+                parent_sections=[section_num]
+            )
+            return [chunk]
+        
+        # Split by paragraphs first
+        paragraphs = self._split_by_paragraphs(section_text)
+        current_chunk_text = ""
+        current_chunk_start = base_offset
+        
+        for para_start, para_end, para_text in paragraphs:
+            # Skip if this paragraph is already processed
+            abs_para_start = base_offset + para_start
+            abs_para_end = base_offset + para_end
+            
+            if any(pos in processed_ranges for pos in range(abs_para_start, abs_para_end)):
+                continue
+            
+            # Check if adding this paragraph would exceed token limit
+            test_text = (current_chunk_text + "\n\n" + para_text).strip()
+            test_tokens = self.count_tokens(test_text)
+            
+            if test_tokens <= self.max_tokens and current_chunk_text:
+                # Safe to add paragraph
+                current_chunk_text = test_text
+            else:
+                # Finalize current chunk if it exists
+                if current_chunk_text:
+                    chunk = self.create_chunk(
+                        chunk_id=chunk_id,
+                        text=current_chunk_text,
+                        char_start=current_chunk_start,
+                        char_end=current_chunk_start + len(current_chunk_text),
+                        page_map=page_map,
+                        headers=headers,
+                        chunk_type="content",
+                        parent_sections=[section_num]
+                    )
+                    chunks.append(chunk)
+                    chunk_id += 1
+                
+                # Start new chunk with current paragraph
+                current_chunk_text = para_text
+                current_chunk_start = abs_para_start
+                
+                # If single paragraph is too large, split it further
+                if self.count_tokens(para_text) > self.max_tokens:
+                    sentence_chunks = self._split_paragraph_by_sentences(
+                        para_text, abs_para_start, section_num, page_map, headers, chunk_id
+                    )
+                    chunks.extend(sentence_chunks)
+                    chunk_id += len(sentence_chunks)
+                    current_chunk_text = ""
+        
+        # Don't forget the last chunk
+        if current_chunk_text:
+            chunk = self.create_chunk(
+                chunk_id=chunk_id,
+                text=current_chunk_text,
+                char_start=current_chunk_start,
+                char_end=current_chunk_start + len(current_chunk_text),
+                page_map=page_map,
+                headers=headers,
+                chunk_type="content",
+                parent_sections=[section_num]
+            )
+            chunks.append(chunk)
+        
+        return chunks
+    
+    def _split_by_paragraphs(self, text: str) -> List[Tuple[int, int, str]]:
+        """Split text by paragraphs and return (start, end, text) tuples"""
+        paragraphs = []
+        
+        # Split by double newlines (paragraph boundaries)
+        para_splits = text.split('\n\n')
+        current_pos = 0
+        
+        for i, para in enumerate(para_splits):
+            para = para.strip()
+            if para:
+                # Find the actual position of this paragraph in the original text
+                start = text.find(para, current_pos)
+                if start == -1:  # Fallback if not found
+                    start = current_pos
+                end = start + len(para)
+                paragraphs.append((start, end, para))
+                current_pos = end
+            
+            # Move past the delimiter for next search
+            if i < len(para_splits) - 1:  # Not the last paragraph
+                current_pos = text.find('\n\n', current_pos) + 2
+                if current_pos == 1:  # find returned -1
+                    current_pos = len(text)
+        
+        return paragraphs
+    
+    def _split_paragraph_by_sentences(
+        self, 
+        para_text: str, 
+        para_start: int, 
+        section_num: str,
+        page_map: Dict[int, int], 
+        headers: List[Tuple[int, str, str]], 
+        start_chunk_id: int
+    ) -> List[TextChunk]:
+        """Split an oversized paragraph by sentences"""
+        chunks = []
+        chunk_id = start_chunk_id
+        
+        # Split by sentences (more sophisticated than just periods)
+        sentences = self._split_by_sentences(para_text)
+        current_chunk = ""
+        current_start = para_start
+        
+        for sentence in sentences:
+            test_chunk = (current_chunk + " " + sentence).strip()
+            
+            if self.count_tokens(test_chunk) <= self.max_tokens:
+                current_chunk = test_chunk
+            else:
+                # Finalize current chunk
+                if current_chunk:
+                    chunk = self.create_chunk(
+                        chunk_id=chunk_id,
+                        text=current_chunk,
+                        char_start=current_start,
+                        char_end=current_start + len(current_chunk),
+                        page_map=page_map,
+                        headers=headers,
+                        chunk_type="content",
+                        parent_sections=[section_num]
+                    )
+                    chunks.append(chunk)
+                    chunk_id += 1
+                
+                # Start new chunk
+                current_chunk = sentence
+                current_start = para_start + para_text.find(sentence)
+        
+        # Final chunk
+        if current_chunk:
+            chunk = self.create_chunk(
+                chunk_id=chunk_id,
+                text=current_chunk,
+                char_start=current_start,
+                char_end=current_start + len(current_chunk),
+                page_map=page_map,
+                headers=headers,
+                chunk_type="content",
+                parent_sections=[section_num]
+            )
+            chunks.append(chunk)
+        
+        return chunks
+    
+    def _split_by_sentences(self, text: str) -> List[str]:
+        """Split text by sentences with better handling of abbreviations"""
+        # Simple sentence splitting - could be enhanced with more sophisticated NLP
+        sentences = []
+        current_sentence = ""
+        
+        i = 0
+        while i < len(text):
+            char = text[i]
+            current_sentence += char
+            
+            if char == '.':
+                # Check if this is end of sentence or abbreviation
+                next_char = text[i + 1] if i + 1 < len(text) else ''
+                
+                # Simple heuristic: if next char is space and then capital letter, it's sentence end
+                if next_char == ' ' and i + 2 < len(text) and text[i + 2].isupper():
+                    sentences.append(current_sentence.strip())
+                    current_sentence = ""
+                elif next_char == '\n':
+                    sentences.append(current_sentence.strip())
+                    current_sentence = ""
+            
+            i += 1
+        
+        # Add remaining text
+        if current_sentence.strip():
+            sentences.append(current_sentence.strip())
+        
+        return [s for s in sentences if s]
+    
+    def _process_remaining_text(
+        self, 
+        text: str, 
+        processed_ranges: set, 
+        page_map: Dict[int, int], 
+        headers: List[Tuple[int, str, str]], 
+        start_chunk_id: int
+    ) -> List[TextChunk]:
+        """Process any text that wasn't handled by section processing"""
+        chunks = []
+        chunk_id = start_chunk_id
+        
+        # Find unprocessed ranges
+        unprocessed_ranges = []
+        current_start = None
+        
+        for i in range(len(text)):
+            if i not in processed_ranges:
+                if current_start is None:
+                    current_start = i
+            else:
+                if current_start is not None:
+                    unprocessed_ranges.append((current_start, i))
+                    current_start = None
+        
+        # Handle final range
+        if current_start is not None:
+            unprocessed_ranges.append((current_start, len(text)))
+        
+        # Process each unprocessed range
+        for start, end in unprocessed_ranges:
+            if end - start > 10:  # Only process ranges larger than 10 characters
+                remaining_text = text[start:end].strip()
+                if remaining_text:
+                    # Use simple token-based chunking for remaining text
+                    remaining_chunks = self._simple_token_chunk(
+                        remaining_text, start, page_map, headers, chunk_id
+                    )
+                    chunks.extend(remaining_chunks)
+                    chunk_id += len(remaining_chunks)
+        
+        return chunks
+    
+    def _simple_token_chunk(
+        self, 
+        text: str, 
+        base_offset: int, 
+        page_map: Dict[int, int], 
+        headers: List[Tuple[int, str, str]], 
+        start_chunk_id: int
+    ) -> List[TextChunk]:
+        """Simple token-based chunking for edge cases"""
+        chunks = []
+        chunk_id = start_chunk_id
+        pos = 0
+        
+        while pos < len(text):
+            # Find chunk end based on actual token count
+            chunk_end = self._find_token_based_end(text, pos, self.max_tokens)
+            chunk_text = text[pos:chunk_end].strip()
+            
+            if chunk_text:
+                chunk = self.create_chunk(
+                    chunk_id=chunk_id,
+                    text=chunk_text,
+                    char_start=base_offset + pos,
+                    char_end=base_offset + chunk_end,
+                    page_map=page_map,
+                    headers=headers,
+                    chunk_type="content"
+                )
+                chunks.append(chunk)
+                chunk_id += 1
+                
+                # Move with overlap
+                overlap_size = min(len(chunk_text) // 4, self.overlap_tokens * 4)
+                pos = max(chunk_end - overlap_size, pos + 1)
+            else:
+                pos = chunk_end
+        
+        return chunks
+    
+    def _find_token_based_end(self, text: str, start: int, max_tokens: int) -> int:
+        """Find chunk end based on actual token count, not character estimation"""
+        current_end = start
+        binary_search_range = (start + 100, min(len(text), start + max_tokens * 6))  # Conservative range
+        
+        # Binary search for optimal end position
+        low, high = binary_search_range
+        best_end = start + 100  # Minimum chunk size
+        
+        while low <= high:
+            mid = (low + high) // 2
+            test_text = text[start:mid]
+            token_count = self.count_tokens(test_text)
+            
+            if token_count <= max_tokens:
+                best_end = mid
+                low = mid + 1
+            else:
+                high = mid - 1
+        
+        # Find a good break point near the best position
+        final_end = self._find_smart_break_point(text, start, best_end)
+        return final_end
+    
+    def _validate_and_fix_chunks(self, chunks: List[TextChunk]) -> List[TextChunk]:
+        """Validate chunks and fix any issues"""
+        validated_chunks = []
+        
+        for chunk in chunks:
+            # Check token count
+            actual_tokens = self.count_tokens(chunk.text)
+            if actual_tokens != chunk.token_count:
+                # Update token count
+                chunk.token_count = actual_tokens
+            
+            # Split oversized chunks
+            if chunk.token_count > self.max_tokens * 1.5:  # 50% tolerance
+                print(f"Warning: Chunk {chunk.chunk_id} oversized ({chunk.token_count} tokens), splitting...")
+                split_chunks = self._split_oversized_chunk(chunk)
+                validated_chunks.extend(split_chunks)
+            else:
+                validated_chunks.append(chunk)
+        
+        # Re-assign chunk IDs
+        for i, chunk in enumerate(validated_chunks):
+            chunk.chunk_id = i
+        
+        return validated_chunks
+    
+    def _split_oversized_chunk(self, chunk: TextChunk) -> List[TextChunk]:
+        """Split an oversized chunk into smaller pieces"""
+        # Simple splitting for oversized chunks
+        text = chunk.text
+        target_size = self.max_tokens
+        
+        # Split by sentences first
+        sentences = self._split_by_sentences(text)
+        sub_chunks = []
+        current_text = ""
+        
+        for sentence in sentences:
+            test_text = (current_text + " " + sentence).strip()
+            if self.count_tokens(test_text) <= target_size:
+                current_text = test_text
+            else:
+                if current_text:
+                    sub_chunks.append(current_text)
+                current_text = sentence
+        
+        if current_text:
+            sub_chunks.append(current_text)
+        
+        # Create new chunk objects
+        result_chunks = []
+        char_offset = chunk.char_start
+        
+        for i, sub_text in enumerate(sub_chunks):
+            new_chunk = TextChunk(
+                chunk_id=chunk.chunk_id + i,
+                text=sub_text,
+                token_count=self.count_tokens(sub_text),
+                char_start=char_offset,
+                char_end=char_offset + len(sub_text),
+                page=chunk.page,
+                heading=chunk.heading,
+                section_number=chunk.section_number,
+                chunk_type=chunk.chunk_type,
+                parent_sections=chunk.parent_sections,
+                section_hierarchy=chunk.section_hierarchy,
+                semantic_completeness=max(0.5, chunk.semantic_completeness - 0.3),  # Reduce completeness
+                preservation_reason=chunk.preservation_reason,
+                has_definitions=chunk.has_definitions,
+                table_structure=chunk.table_structure
+            )
+            result_chunks.append(new_chunk)
+            char_offset += len(sub_text)
+        
+        return result_chunks
 
 
 # Singleton instance
