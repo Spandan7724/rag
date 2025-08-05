@@ -165,13 +165,17 @@ class EnhancedAnswerGenerator:
         
         specialized_instructions = ""
         if any(term in question_lower for term in ['percentage', 'percent', '%', 'amount', 'limit']):
-            specialized_instructions = "\n- Extract exact numbers, percentages, and amounts as stated in the context."
+            specialized_instructions = "\n- VERBATIM EXTRACTION: Quote exact numerical figures with complete surrounding context, including currency symbols, mathematical operators, and all qualifying conditions exactly as they appear."
         elif any(term in question_lower for term in ['definition', 'meaning', 'what is', 'what does']):
-            specialized_instructions = "\n- Provide the precise definition as stated in the policy document."
+            specialized_instructions = "\n- COMPLETE DEFINITION EXTRACTION: Provide the entire verbatim definition including all sub-clauses, conditions, exceptions, and qualifying statements exactly as written in the policy document."
         elif any(term in question_lower for term in ['when', 'time', 'period', 'days']):
-            specialized_instructions = "\n- Include specific time periods, days, and conditions exactly as mentioned."
+            specialized_instructions = "\n- TEMPORAL PRECISION: Extract exact time periods, specific days, deadlines, and ALL associated conditions, requirements, and exceptions verbatim from the context."
         elif any(term in question_lower for term in ['coverage', 'covered', 'benefit']):
-            specialized_instructions = "\n- State coverage details and any conditions or exclusions clearly."
+            specialized_instructions = "\n- COMPREHENSIVE COVERAGE EXTRACTION: Quote complete coverage details including ALL conditions, exclusions, limitations, and qualifying criteria exactly as stated in the policy text."
+        elif any(term in question_lower for term in ['procedure', 'process', 'how to', 'steps']):
+            specialized_instructions = "\n- PROCEDURAL EXTRACTION: Extract complete step-by-step procedures, requirements, and processes verbatim, preserving all numbering, sequencing, and conditional statements."
+        elif any(term in question_lower for term in ['eligible', 'eligibility', 'qualify', 'criteria']):
+            specialized_instructions = "\n- ELIGIBILITY CRITERIA EXTRACTION: Quote complete eligibility requirements, qualifying conditions, and all associated criteria exactly as specified in the context."
         
         system_message = f"""You are a precise insurance policy expert. Answer ONLY based on the provided context.
 

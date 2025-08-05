@@ -272,7 +272,7 @@ class DocumentProcessor:
             open_time = time.time() - start_time
             print(f"PDF opened in {open_time:.2f}s")
             
-            # Extract text from all pages using hybrid processing
+            # Extract text from all pages using intelligent hybrid processing
             text_parts = []
             page_texts = []
             processing_stats = {
@@ -282,19 +282,34 @@ class DocumentProcessor:
                 'ocr': 0
             }
             
+            # Performance tracking for intelligent triage
+            complexity_distribution = {'simple': 0, 'moderate': 0, 'complex': 0}
+            processing_times = {}
+            
             for page_num in range(pdf_doc.page_count):
                 page = pdf_doc[page_num]
+                page_start_time = time.time()
                 
                 if settings.enable_hybrid_processing:
-                    # Analyze page content to determine processing strategy
-                    analysis = self.analyze_page_content(page)
+                    # Intelligent page complexity analysis
+                    analysis = self._analyze_page_complexity(page)
                     processing_method = analysis['processing_method']
+                    complexity_score = analysis['complexity_score']
+                    
+                    # Update statistics
                     processing_stats[processing_method] += 1
+                    if analysis['is_simple']:
+                        complexity_distribution['simple'] += 1
+                    elif analysis['is_complex']:
+                        complexity_distribution['complex'] += 1
+                    else:
+                        complexity_distribution['moderate'] += 1
                     
                     print(f"  Page {page_num + 1}: Using {processing_method} processing "
-                          f"(text: {analysis['text_length']} chars, tables: {analysis['table_count']})")
+                          f"(complexity: {complexity_score:.1f}, text: {analysis['text_length']} chars, "
+                          f"tables: {analysis['table_count']}, images: {analysis['image_count']})")
                     
-                    # Process page based on analysis
+                    # Process page based on intelligent analysis
                     if processing_method == 'pdfplumber':
                         # Use PDFPlumber for table extraction (primary method)
                         page_text = page.get_text()  # Get basic text
@@ -322,7 +337,7 @@ class DocumentProcessor:
                             page_text = page.get_text()
                     
                     else:  # processing_method == 'text'
-                        # Fast PyMuPDF text extraction
+                        # Fast PyMuPDF text extraction for simple pages
                         page_text = page.get_text()
                 
                 else:
@@ -339,17 +354,47 @@ class DocumentProcessor:
                         else:
                             print(f"  Page {page_num + 1}: OCR didn't improve extraction")
                 
+                # Track per-page processing time
+                page_time = time.time() - page_start_time
+                if processing_method not in processing_times:
+                    processing_times[processing_method] = []
+                processing_times[processing_method].append(page_time)
+                
                 page_texts.append(f"--- Page {page_num + 1} ---\n{page_text}")
                 text_parts.append(page_text)
             
-            # Print processing statistics
+            # Print intelligent processing statistics
             if settings.enable_hybrid_processing:
-                print(f"Processing statistics: {processing_stats}")
+                print(f"Intelligent Processing Statistics:")
                 total_pages = sum(processing_stats.values())
-                if total_pages > 0:
-                    for method, count in processing_stats.items():
-                        if count > 0:
-                            print(f"  - {method}: {count} pages ({count/total_pages*100:.1f}%)")
+                
+                # Processing method distribution
+                print(f"Processing method distribution:")
+                for method, count in processing_stats.items():
+                    if count > 0:
+                        avg_time = sum(processing_times.get(method, [])) / len(processing_times.get(method, [1]))
+                        print(f"  - {method}: {count} pages ({count/total_pages*100:.1f}%) "
+                              f"avg: {avg_time:.2f}s")
+                
+                # Complexity distribution
+                total_analyzed = sum(complexity_distribution.values())
+                if total_analyzed > 0:
+                    print(f"Page complexity distribution:")
+                    for complexity, count in complexity_distribution.items():
+                        print(f"  - {complexity}: {count} pages ({count/total_analyzed*100:.1f}%)")
+                
+                # Performance summary
+                if processing_times:
+                    total_processing_time = sum([sum(times) for times in processing_times.values()])
+                    print(f"Total processing time: {total_processing_time:.2f}s "
+                          f"({total_processing_time/total_pages:.2f}s per page)")
+                    
+                    # Efficiency analysis
+                    simple_pages = complexity_distribution.get('simple', 0)
+                    complex_pages = complexity_distribution.get('complex', 0)
+                    if simple_pages > 0 and complex_pages > 0:
+                        efficiency_gain = (simple_pages * 2.0) / total_pages  # Estimated 2x speedup for simple pages
+                        print(f"Estimated efficiency gain from intelligent triage: {efficiency_gain:.1f}x")
             
             # Combine all text
             full_text = "\n".join(text_parts)
@@ -426,32 +471,170 @@ class DocumentProcessor:
                 'is_image_heavy': False
             }
     
-    def _determine_processing_method(self, text_length: int, has_tables: bool) -> str:
+    def _analyze_page_complexity(self, page) -> Dict[str, Any]:
         """
-        Determine the optimal processing method based on page analysis
+        Intelligent per-page complexity analysis for optimal processing triage
         
         Args:
-            text_length: Length of text content
-            has_tables: Whether page has tables
+            page: PyMuPDF page object
             
         Returns:
-            Processing method string
+            Dict containing complexity analysis and processing recommendation
+        """
+        try:
+            # Fast initial scan for basic metrics
+            text_content = page.get_text()
+            text_length = len(text_content)
+            
+            # Table detection using PyMuPDF's fast method
+            table_finder = page.find_tables()
+            tables = list(table_finder)
+            table_count = len(tables)
+            has_tables = table_count > 0
+            
+            # Visual complexity assessment
+            page_rect = page.rect
+            page_area = page_rect.width * page_rect.height
+            
+            # Image detection and analysis
+            image_list = page.get_images()
+            image_count = len(image_list)
+            
+            # Calculate image coverage ratio
+            image_coverage = 0.0
+            if image_list:
+                for img_info in image_list:
+                    try:
+                        # Get image bbox if available
+                        img_rect = page.get_image_bbox(img_info)
+                        if img_rect:
+                            img_area = (img_rect.x1 - img_rect.x0) * (img_rect.y1 - img_rect.y0)
+                            image_coverage += img_area / page_area
+                    except:
+                        # Fallback: estimate coverage based on image count
+                        image_coverage += 0.1  # Assume 10% per image
+            
+            # Text density analysis
+            text_blocks = page.get_text("blocks")
+            text_block_count = len([block for block in text_blocks if block[4].strip()])
+            
+            # Layout complexity scoring
+            complexity_score = self._calculate_complexity_score(
+                text_length, table_count, image_count, image_coverage, 
+                text_block_count, page_area
+            )
+            
+            # Determine optimal processing method
+            processing_method = self._determine_optimal_processing(
+                complexity_score, text_length, has_tables, image_count, image_coverage
+            )
+            
+            return {
+                'text_length': text_length,
+                'table_count': table_count,
+                'has_tables': has_tables,
+                'image_count': image_count,
+                'image_coverage': image_coverage,
+                'text_block_count': text_block_count,
+                'complexity_score': complexity_score,
+                'processing_method': processing_method,
+                'page_area': page_area,
+                'is_simple': complexity_score <= 2.0,
+                'is_complex': complexity_score >= 6.0,
+                'confidence': min(abs(complexity_score - 4.0) / 4.0, 1.0)
+            }
+            
+        except Exception as e:
+            print(f"Page complexity analysis failed: {e}")
+            # Fallback to simple text processing
+            return {
+                'text_length': len(page.get_text()) if page else 0,
+                'table_count': 0,
+                'has_tables': False,
+                'image_count': 0,
+                'image_coverage': 0.0,
+                'text_block_count': 0,
+                'complexity_score': 1.0,
+                'processing_method': 'text',
+                'page_area': 0,
+                'is_simple': True,
+                'is_complex': False,
+                'confidence': 0.5
+            }
+    
+    def _calculate_complexity_score(self, text_length: int, table_count: int, 
+                                   image_count: int, image_coverage: float, 
+                                   text_block_count: int, page_area: float) -> float:
+        """
+        Calculate a complexity score (0-10) for intelligent page routing
+        
+        Score interpretation:
+        0-2: Simple text pages → Fast PyMuPDF
+        3-5: Moderate complexity → Hybrid approach
+        6-10: Complex layouts → Full docling pipeline
+        """
+        score = 0.0
+        
+        # Text analysis (higher text = simpler, unless very fragmented)
+        if text_length < 50:
+            score += 3.0  # Very little text, likely image-heavy
+        elif text_length < 200:
+            score += 2.0  # Limited text
+        elif text_length > 2000:
+            score += 0.5  # Lots of text, likely simple
+        else:
+            score += 1.0  # Moderate text
+        
+        # Table complexity
+        score += min(table_count * 2.0, 4.0)  # Up to 4 points for tables
+        
+        # Image complexity
+        score += min(image_count * 1.0, 3.0)  # Up to 3 points for images
+        score += min(image_coverage * 5.0, 3.0)  # Up to 3 points for coverage
+        
+        # Layout fragmentation (more blocks = more complex layout)
+        if text_block_count > 20:
+            score += 2.0  # Highly fragmented
+        elif text_block_count > 10:
+            score += 1.0  # Moderately fragmented
+        
+        return min(score, 10.0)
+    
+    def _determine_optimal_processing(self, complexity_score: float, text_length: int,
+                                    has_tables: bool, image_count: int, 
+                                    image_coverage: float) -> str:
+        """
+        Determine optimal processing method based on complexity analysis
         """
         if not settings.enable_hybrid_processing:
-            return 'text'  # Default to current behavior
+            return 'text'
         
-        if text_length < settings.text_threshold:
-            return 'ocr'  # PaddleOCR for image-heavy pages
-        elif has_tables:
+        # Very simple pages: Fast PyMuPDF text extraction
+        if complexity_score <= 2.0 and not has_tables and image_count == 0:
+            return 'text'
+        
+        # Complex pages with tables/images: Use RapidOCR for now (docling disabled)
+        elif complexity_score >= 6.0 or (has_tables and image_count > 0):
+            return 'ocr'
+        
+        # Image-heavy pages with minimal text: OCR processing
+        elif text_length < settings.text_threshold or image_coverage > 0.5:
+            return 'ocr'
+        
+        # Table-only pages: Targeted table extraction
+        elif has_tables and image_count == 0:
             if settings.table_extraction_method == "auto":
-                # PDFPlumber-first approach for better table accuracy
-                return 'pdfplumber'  # Primary choice for all table types
-            elif settings.table_extraction_method == "pdfplumber":
-                return 'pdfplumber'  # Direct PDFPlumber selection
+                return 'pdfplumber'
             else:
-                return settings.table_extraction_method  # Use configured method
+                return settings.table_extraction_method
+        
+        # Moderate complexity: Hybrid approach
+        elif complexity_score <= 5.0:
+            return 'text'  # Fast text extraction for moderate pages
+        
+        # Default to OCR for uncertain cases (docling disabled)
         else:
-            return 'text'  # Fast PyMuPDF text extraction
+            return 'ocr'
     
     
     def extract_tables_with_pymupdf(self, page) -> str:
@@ -659,6 +842,138 @@ class DocumentProcessor:
             print(f"RapidOCR failed: {e}")
             # Fallback to PaddleOCR if RapidOCR fails
             return self._extract_with_paddleocr(page)
+    
+    def _extract_with_docling(self, pdf_data: bytes, page_num: int) -> str:
+        """
+        Extract text from specific page using Docling with RTMDet-S layout + RapidOCR
+        
+        Args:
+            pdf_data: PDF file data as bytes
+            page_num: Page number (0-based)
+            
+        Returns:
+            Extracted text with layout preservation
+        """
+        import tempfile
+        import os
+        temp_pdf_path = None
+        
+        try:
+            from docling.datamodel.pipeline_options import PdfPipelineOptions, RapidOcrOptions
+            from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+            from docling.datamodel.base_models import InputFormat
+            from docling.document_converter import DocumentConverter, PdfFormatOption
+            
+            # Initialize Docling with optimized settings (cached in class if needed)
+            if not hasattr(self, '_docling_converter'):
+                print("Docling: Initializing with RTMDet-S layout + RapidOCR...")
+                
+                # Configure accelerator (GPU if available)
+                if settings.use_gpu_ocr:
+                    accel = AcceleratorOptions(device=AcceleratorDevice.CUDA)
+                    print("Docling: Using CUDA acceleration")
+                else:
+                    accel = AcceleratorOptions(device=AcceleratorDevice.CPU)
+                    print("Docling: Using CPU mode")
+                
+                # Configure pipeline options
+                pipeline_options = PdfPipelineOptions(
+                    accelerator_options=accel,
+                    do_ocr=True,
+                    ocr_options=RapidOcrOptions(lang=["en"]),
+                    do_table_structure=True,
+                    layout_model_spec="mmdet_rtm_s",  # RTMDet-S for layout detection
+                    # Optimize for processing
+                    do_cell_matching=True,
+                    do_figure_extraction=True
+                )
+                
+                # Create converter with format options
+                self._docling_converter = DocumentConverter(
+                    format_options={
+                        InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+                    }
+                )
+            
+            # Create temporary PDF file for docling (API requirement)
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+                temp_file.write(pdf_data)
+                temp_pdf_path = temp_file.name
+            
+            # Process with docling using file path
+            result = self._docling_converter.convert(temp_pdf_path)
+            
+            # Extract text from the specific page
+            if result and hasattr(result, 'document'):
+                doc = result.document
+                
+                # Get all text elements
+                extracted_text = []
+                
+                # Extract text preserving layout structure
+                if hasattr(doc, 'iterate_items'):
+                    for item in doc.iterate_items():
+                        # Filter for the specific page if page info is available
+                        try:
+                            if hasattr(item, 'prov') and hasattr(item.prov, 'page_no'):
+                                if item.prov.page_no != page_num + 1:  # docling uses 1-based page numbers
+                                    continue
+                        except:
+                            pass  # If page filtering fails, include all content
+                        
+                        # Extract text content
+                        if hasattr(item, 'text') and item.text:
+                            extracted_text.append(item.text.strip())
+                        elif hasattr(item, 'content') and item.content:
+                            extracted_text.append(str(item.content).strip())
+                
+                # If page-specific filtering didn't work, try alternative extraction methods
+                if not extracted_text:
+                    # Try export methods
+                    try:
+                        if hasattr(doc, 'export_to_markdown'):
+                            full_content = doc.export_to_markdown()
+                            # For single page, return full content (better than nothing)
+                            return full_content
+                        elif hasattr(doc, 'export_to_text'):
+                            full_content = doc.export_to_text()
+                            return full_content
+                    except Exception as export_error:
+                        print(f"Docling export failed: {export_error}")
+                    
+                    # Final fallback: convert doc to string
+                    return str(doc) if doc else ""
+                
+                return '\n'.join(extracted_text)
+            
+            return ""
+            
+        except Exception as e:
+            print(f"Docling processing failed: {e}")
+            # Fallback to RapidOCR for complex pages
+            try:
+                # Convert page to image and use RapidOCR
+                import pymupdf
+                pdf_doc = pymupdf.open(stream=pdf_data, filetype="pdf")
+                if page_num < len(pdf_doc):
+                    page = pdf_doc[page_num]
+                    result = self._extract_with_rapidocr(page)
+                    pdf_doc.close()
+                    return result
+                pdf_doc.close()
+            except Exception as ocr_error:
+                print(f"Docling fallback to RapidOCR also failed: {ocr_error}")
+            
+            return ""
+            
+        finally:
+            # Clean up temporary file
+            if temp_pdf_path and os.path.exists(temp_pdf_path):
+                try:
+                    os.unlink(temp_pdf_path)
+                except Exception as cleanup_error:
+                    print(f"Warning: Failed to cleanup temp file {temp_pdf_path}: {cleanup_error}")
+                    # Non-critical error, continue processing
     
     def _clean_dataframe(self, df) -> Any:
         """

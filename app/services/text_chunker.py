@@ -29,8 +29,8 @@ class TextChunker:
     def __init__(self):
         """Initialize text chunker"""
         self.tokenizer = tiktoken.get_encoding("cl100k_base")  # Standard tokenizer
-        self.max_tokens = 450  # Balanced size to isolate short clauses (<600 chars)
-        self.overlap_tokens = 75   # Reasonable overlap for continuity
+        self.max_tokens = settings.chunk_size  # Use configured chunk size from settings
+        self.overlap_tokens = settings.chunk_overlap  # Use configured overlap from settings
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""

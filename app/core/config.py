@@ -73,11 +73,11 @@ class Settings(BaseSettings):
     max_tokens_per_chunk: int = 8192  # BGE-M3 max supported tokens
     
     # Advanced Retrieval Configuration
-    adaptive_k: bool = False  # Dynamically adjust k based on query complexity
-    min_k_retrieve: int = 25  # Minimum chunks to retrieve
-    max_k_retrieve: int = 50  # Maximum chunks to retrieve for complex queries
+    adaptive_k: bool = True  # Dynamically adjust k based on query complexity
+    min_k_retrieve: int = 30  # Minimum chunks to retrieve
+    max_k_retrieve: int = 60  # Maximum chunks to retrieve for complex queries
     similarity_threshold: float = 0.3  # Minimum similarity score to include chunks
-    top_k_reranked: int = 10  # Number of reranked chunks to send to LLM (configurable TOP_K_RERANKED)
+    top_k_reranked: int = 8  # Optimized for larger token budget - fewer chunks, more context per chunk
     enable_boost_rules: bool = False  # Enable insurance-specific boost rules for better accuracy
     
     # Performance Optimization Configuration
@@ -88,8 +88,8 @@ class Settings(BaseSettings):
     max_concurrent_requests: int = 4  # Limit concurrent API calls
     max_concurrent_questions: int = 2  # Max questions to process in parallel
     api_timeout_seconds: int = 10  # Faster timeout for API calls
-    early_stopping: bool = True  # Stop processing if confident answer found
-    confidence_threshold: float = 0.85  # Confidence threshold for early stopping
+    early_stopping: bool = True  # Stop processing if confident answer found  
+    confidence_threshold: float = 0.6  # Relaxed threshold to allow comprehensive multi-clause searches
     
     # Model Optimization
 
@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4.1-2025-04-14"  # Model for answer generation #gpt-4.1-2025-04-14 #gemini-1.5-flash-latest
     gemini_api_key: str = ""  # Set via environment variable GEMINI_API_KEY
     copilot_access_token: str = ""  # Set via environment variable COPILOT_ACCESS_TOKEN
-    llm_max_tokens: int = 200  # Increased for comprehensive answers and better accuracy
+    llm_max_tokens: int = 768  # Sufficient tokens for complete clause extraction and comprehensive answers
     llm_temperature: float = 0.3  # Balanced temperature for detailed but factual responses
     
     # Competition-specific optimizations
