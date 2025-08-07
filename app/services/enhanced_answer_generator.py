@@ -11,7 +11,7 @@ from sentence_transformers import CrossEncoder
 from app.services.vector_store import SearchResult
 from app.services.copilot_provider import get_copilot_provider, CopilotResponse
 from app.services.cache_manager import get_cache_manager
-from app.core.config import Settings
+from app.core.config import Settings, settings
 
 
 class ThreadSafeReranker:
@@ -142,6 +142,8 @@ class EnhancedAnswerGenerator:
         """Prepare source information from search results"""
         sources = []
         
+        print(f"DEBUG: _prepare_sources called with {len(search_results)} search results")
+        
         for i, result in enumerate(search_results):
             source = {
                 "number": i + 1,
@@ -155,6 +157,7 @@ class EnhancedAnswerGenerator:
             }
             sources.append(source)
         
+        print(f"DEBUG: _prepare_sources returning {len(sources)} sources")
         return sources
 
     def _create_rag_prompt(self, question: str, context_str: str) -> str:
@@ -401,7 +404,7 @@ ANSWER:"""
         self, 
         question: str, 
         search_results: List[SearchResult],
-        max_context_length: int = 6000
+        max_context_length: int = None
     ) -> GeneratedAnswer:
         """
         Generate answer using the configured LLM provider
@@ -409,15 +412,20 @@ ANSWER:"""
         Args:
             question: User question
             search_results: Search results from vector store
-            max_context_length: Maximum context length (kept for compatibility)
+            max_context_length: Maximum context length (None = use config default)
             
         Returns:
             GeneratedAnswer with response and metadata
         """
         start_time = time.time()
         
+        # Use config default if not specified
+        if max_context_length is None:
+            max_context_length = settings.max_context_tokens
+            
         print(f"Generating answer using {self.provider_type} for: {question[:50]}...")
         print(f"Using {len(search_results)} search results")
+        print(f"Max context length: {max_context_length:,} tokens")
         
         if not search_results:
             return GeneratedAnswer(
@@ -491,9 +499,13 @@ ANSWER:"""
         
         print(f"After reranking: using top {len(candidates)} most relevant chunks")
         
-        # Build compact context
+        # Build rich context with metadata
         context_str = "\n".join(
-            f"[{i+1}] {c.text}" for i, c in enumerate(candidates)
+            f"[{i+1}] ({getattr(c.metadata, 'chunk_type', 'content').title()}, "
+            f"Page {getattr(c.metadata, 'page', 'N/A')}"
+            f"{f', {getattr(c.metadata, 'section_hierarchy', '')}' if getattr(c.metadata, 'section_hierarchy', None) else ''}) "
+            f"{c.text}" 
+            for i, c in enumerate(candidates)
         )
         
         print(f"Context length: {len(context_str)} characters")
@@ -505,41 +517,8 @@ ANSWER:"""
             else:  # gemini
                 answer = self._generate_with_gemini_sync(question, context_str)
             
-            # Minimal post-processing (preserve formatting)
+            # Simple post-processing - no retry/expansion complexity
             answer = answer.strip()
-            
-            # If answer is too short or "Not available", try with more context
-            if len(answer.strip()) < 30 or "not available" in answer.lower():
-                print("  Answer too short, expanding context...")
-                # Use more chunks for a second attempt
-                additional_candidates = search_results[adaptive_reranked:adaptive_reranked+3]
-                if additional_candidates:
-                    expanded_context = context_str + "\n\nADDITIONAL CONTEXT:\n" + "\n".join(
-                        f"[{i+6}] {c.text}" for i, c in enumerate(additional_candidates)
-                    )
-                    
-                    retry_prompt = f"""The previous attempt found limited information. Now with expanded context, please try again to extract any relevant information.
-
-EXPANDED CONTEXT:
-{expanded_context}
-
-QUESTION: {question}
-
-ANSWER (look more carefully for any relevant details):"""
-                    
-                    try:
-                        if self.provider_type == "copilot":
-                            retry_answer = self._generate_with_copilot_sync(question, retry_prompt)
-                        else:
-                            retry_answer = self._generate_with_gemini_sync(question, retry_prompt)
-                        
-                        retry_answer = retry_answer.strip()
-                        if len(retry_answer.strip()) > len(answer.strip()):
-                            answer = retry_answer
-                            candidates.extend(additional_candidates)
-                            print(f"  Improved answer with expanded context: {len(answer)} chars")
-                    except Exception as e:
-                        print(f"  Retry attempt failed: {e}")
             
             processing_time = time.time() - start_time
             
@@ -582,34 +561,18 @@ ANSWER (look more carefully for any relevant details):"""
         async def _async_generate():
             prompt = self._create_rag_prompt(question, context_str)
             
-            # Retry logic for API failures
-            max_retries = 2
-            for attempt in range(max_retries):
-                try:
-                    # Update provider with configured token limit
-                    self.provider.kwargs.update({"max_tokens": self.max_tokens})
-                    
-                    response = await self.provider.generate_answer(
-                        prompt=prompt,
-                        temperature=self.temperature  # Use configured temperature
-                    )
-                    
-                    if response.error:
-                        if attempt < max_retries - 1:
-                            print(f"  Copilot attempt {attempt + 1} failed, retrying...")
-                            await asyncio.sleep(1)  # Brief delay
-                            continue
-                        raise Exception(response.error)
-                    
-                    # Return full response content (no truncation)
-                    return response.content.strip()
-                    
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        print(f"  Copilot attempt {attempt + 1} failed: {e}, retrying...")
-                        await asyncio.sleep(1)
-                        continue
-                    raise e
+            # Simple single attempt - no retry complexity
+            self.provider.kwargs.update({"max_tokens": self.max_tokens})
+            
+            response = await self.provider.generate_answer(
+                prompt=prompt,
+                temperature=self.temperature
+            )
+            
+            if response.error:
+                raise Exception(response.error)
+            
+            return response.content.strip()
         
         # Run async function synchronously
         try:

@@ -45,8 +45,18 @@ class Settings(BaseSettings):
     processing_timeout: int = 3000  # seconds
     
     # Embedding Configuration
-    embedding_model: str = "BAAI/bge-m3"
-    embedding_device: str = "cuda"  # Use GPU if available
+    embedding_provider: str = "bge-m3"  # Options: "bge-m3", "gemini"
+    embedding_model: str = "BAAI/bge-m3"  # For BGE-M3 provider
+    embedding_device: str = "cuda"  # Use GPU if available for local models
+    
+    # Gemini Embedding Configuration
+    gemini_embedding_model: str = "gemini-embedding-001"  # Gemini model name
+    gemini_embedding_dimension: int = 768  # Options: 128-3072, recommended: 768, 1536, 3072
+    gemini_task_type_document: str = "RETRIEVAL_DOCUMENT"  # Task type for indexing documents
+    gemini_task_type_query: str = "RETRIEVAL_QUERY"  # Task type for search queries
+    gemini_api_timeout: int = 30  # API request timeout in seconds
+    gemini_batch_size: int = 100  # Maximum texts per API call
+    gemini_rate_limit_delay: float = 0.1  # Delay between API calls for rate limiting
     
     # Hybrid PDF Processing Configuration
     enable_hybrid_processing: bool = True  # Enable smart page-level processing
@@ -69,16 +79,16 @@ class Settings(BaseSettings):
     # Text Chunking Configuration
     chunk_size: int = 450  # Smaller chunks to isolate short clauses like grace period (<600 chars)
     chunk_overlap: int = 100   # Increased overlap for better continuity and accuracy
-    k_retrieve: int = 20  # Number of chunks to retrieve from vector store (configurable via .env as K_RETRIEVE)
+    k_retrieve: int = 35  # Optimized for speed/accuracy balance 
     max_tokens_per_chunk: int = 8192  # BGE-M3 max supported tokens
     
     # Advanced Retrieval Configuration
-    adaptive_k: bool = True  # Dynamically adjust k based on query complexity
-    min_k_retrieve: int = 30  # Minimum chunks to retrieve
-    max_k_retrieve: int = 60  # Maximum chunks to retrieve for complex queries
-    similarity_threshold: float = 0.3  # Minimum similarity score to include chunks
-    top_k_reranked: int = 8  # Optimized for larger token budget - fewer chunks, more context per chunk
-    enable_boost_rules: bool = False  # Enable insurance-specific boost rules for better accuracy
+    adaptive_k: bool = False  # Disable adaptive k - use fixed values for simplicity
+    min_k_retrieve: int = 20  # Minimum chunks to retrieve
+    max_k_retrieve: int = 40  # Reduced for faster processing
+    similarity_threshold: float = 1.5  # Maximum L2 distance to include chunks (lower = more similar)
+    top_k_reranked: int = 7  # Slightly reduced for faster reranking
+    enable_boost_rules: bool = False  # Disable boost rules - too complex and brittle
     
     # Performance Optimization Configuration
     enable_result_caching: bool = False  # Cache query results for faster responses
@@ -87,7 +97,7 @@ class Settings(BaseSettings):
     enable_reranker_cache: bool = False  # Cache reranker scores
     max_concurrent_requests: int = 4  # Limit concurrent API calls
     max_concurrent_questions: int = 2  # Max questions to process in parallel
-    api_timeout_seconds: int = 10  # Faster timeout for API calls
+    api_timeout_seconds: int = 50  # Balanced timeout for comprehensive responses
     early_stopping: bool = True  # Stop processing if confident answer found  
     confidence_threshold: float = 0.6  # Relaxed threshold to allow comprehensive multi-clause searches
     
@@ -101,13 +111,20 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4.1-2025-04-14"  # Model for answer generation #gpt-4.1-2025-04-14 #gemini-1.5-flash-latest
     gemini_api_key: str = ""  # Set via environment variable GEMINI_API_KEY
     copilot_access_token: str = ""  # Set via environment variable COPILOT_ACCESS_TOKEN
-    llm_max_tokens: int = 768  # Sufficient tokens for complete clause extraction and comprehensive answers
-    llm_temperature: float = 0.3  # Balanced temperature for detailed but factual responses
+    llm_max_tokens: int = 2048  # Increased for comprehensive insurance analysis with metadata
+    llm_temperature: float = 0.2  # Lower temperature for more factual, precise responses
     
     # Competition-specific optimizations
     competition_mode: bool = False  # Enable competition optimizations
     fast_mode: bool = False  # Prioritize accuracy over speed
-    max_context_tokens: int = 24000  # Increased context for better accuracy
+    max_context_tokens: int = 64000  # Increased context for better accuracy
+    
+    # Query Transformation Configuration
+    enable_query_transformation: bool = True  # Enable multi-query decomposition
+    max_sub_queries: int = 4  # Maximum number of sub-queries to generate
+    query_transformation_timeout: int = 30  # Timeout for query decomposition in seconds
+    min_query_length: int = 20  # Minimum query length to consider for transformation
+    transformation_temperature: float = 0.1  # Temperature for query transformation LLM calls
     
     class Config:   
         env_file = ".env"

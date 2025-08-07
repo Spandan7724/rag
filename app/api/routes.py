@@ -2,16 +2,18 @@
 API routes for the RAG application
 """
 import asyncio
+import time
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.security import HTTPAuthorizationCredentials
 from typing import List
 
 from app.models.requests import (
-    QueryRequest, QueryResponse, HealthResponse, UploadResponse, 
+    QueryRequest, QueryResponse, SimpleQueryResponse, HealthResponse, UploadResponse, 
     UploadRequest, FileInfoResponse, FileListResponse
 )
 from app.services.rag_coordinator import get_rag_coordinator
 from app.services.file_manager import get_file_manager
+from app.services.question_logger import get_question_logger
 from app.core.security import verify_token
 from app.core.config import settings
 from app.core.directories import get_directory_manager
@@ -47,7 +49,7 @@ async def health_check():
         )
 
 
-@router.post("/hackrx/run", response_model=QueryResponse)
+@router.post("/hackrx/run", response_model=SimpleQueryResponse)
 async def process_queries(
     request: QueryRequest,
     token: str = Depends(verify_token)
@@ -67,13 +69,32 @@ async def process_queries(
         total_start_time = time.time()
         
         rag_coordinator = get_rag_coordinator()
+        question_logger = get_question_logger()
         
         # Step 1: Process document (with automatic caching)
         print(f"Processing document: {request.documents}")
+        print(f"Using embedding provider: {settings.embedding_provider}")
         doc_start_time = time.time()
-        doc_result = await rag_coordinator.process_document(str(request.documents))
+        doc_result = await rag_coordinator.process_document(
+            url=str(request.documents)
+        )
         doc_processing_time = time.time() - doc_start_time
         doc_id = doc_result["doc_id"]
+        
+        # Start question logging session
+        session_metadata = {
+            "embedding_provider": settings.embedding_provider,
+            "llm_provider": settings.llm_provider,
+            "embedding_model": settings.embedding_model,
+            "total_questions": len(request.questions),
+            "query_transformation_enabled": request.enable_query_transformation if request.enable_query_transformation is not None else settings.enable_query_transformation
+        }
+        
+        session_id = question_logger.start_session(
+            document_url=str(request.documents),
+            doc_id=doc_id,
+            metadata=session_metadata
+        )
         
         if doc_result["status"] == "cached":
             print(f"Using cached document: {doc_id}")
@@ -104,18 +125,44 @@ async def process_queries(
         
         # Create async tasks for all questions
         async def process_single_question(i: int, question: str):
-            print(f"  Question {i+1}: {question[:50]}...")
+            print(f"  Question {i+1}: {question}")  # Log full question instead of truncated
             
-            # Use RAG pipeline to answer question
+            # Use RAG pipeline to answer question with query transformation support
             rag_response = await rag_coordinator.answer_question_async(
                 question=question,
                 doc_id=doc_id,
                 k_retrieve=settings.k_retrieve,  # Use config value for consistency
-                max_context_length=6000  # Max context for LLM
+                max_context_length=settings.max_context_tokens,  # Use full context window from config
+                enable_transformation=request.enable_query_transformation  # Use request parameter
             )
             
             print(f"    Question {i+1} answered in {rag_response.processing_time:.2f}s")
             print(f"    Used {len(rag_response.sources_used)} sources")
+            if rag_response.query_transformation and rag_response.query_transformation.get('successful'):
+                print(f"    Query transformation: {len(rag_response.query_transformation['sub_queries'])} sub-queries")
+            
+            # Log question and response
+            try:
+                # Extract similarity scores from pipeline stats if available
+                similarity_scores = []
+                if hasattr(rag_response, 'pipeline_stats') and 'similarity_scores' in rag_response.pipeline_stats:
+                    similarity_scores = rag_response.pipeline_stats.get('similarity_scores', [])
+                elif len(rag_response.sources_used) > 0:
+                    # Try to extract from sources metadata
+                    similarity_scores = [source.get('similarity_score', 0.0) for source in rag_response.sources_used[:3]]
+                
+                question_logger.log_question(
+                    session_id=session_id,
+                    question_id=i+1,
+                    question=question,
+                    processing_time=rag_response.processing_time,
+                    answer=rag_response.answer,
+                    sources_used=len(rag_response.sources_used),
+                    similarity_scores=similarity_scores,
+                    error=None
+                )
+            except Exception as log_error:
+                print(f"Warning: Failed to log question {i+1}: {log_error}")
             
             return rag_response
         
@@ -135,9 +182,15 @@ async def process_queries(
         # Wait for all questions to complete
         rag_responses = await asyncio.gather(*tasks)
         
-        # Extract answers and timing info
+        # Extract answers, sources, timing info, and transformation metadata
         answers = [response.answer for response in rag_responses]
+        sources = [response.sources_used for response in rag_responses]
         individual_times = [response.processing_time for response in rag_responses]
+        query_transformations = [response.query_transformation for response in rag_responses]
+        
+        # Calculate transformation statistics
+        transformations_successful = sum(1 for qt in query_transformations 
+                                       if qt and qt.get('successful', False))
         
         # Calculate total times
         questions_processing_time = time.time() - questions_start_time
@@ -168,14 +221,79 @@ async def process_queries(
         print(f"  - Fastest Question: {min(individual_times):.2f}s")
         print(f"  - Slowest Question: {max(individual_times):.2f}s")
         print(f"  - Effective Questions per Second: {len(request.questions) / questions_processing_time:.2f}")
+        
+        print(f"\nQuery Transformation Statistics:")
+        print(f"  - Transformations Enabled: {request.enable_query_transformation if request.enable_query_transformation is not None else settings.enable_query_transformation}")
+        print(f"  - Questions with Successful Transformation: {transformations_successful}/{len(request.questions)}")
         print(f"="*70)
         
-        return QueryResponse(answers=answers)
+        # Create processing summary
+        processing_summary = {
+            "total_questions": len(request.questions),
+            "questions_with_transformation": transformations_successful,
+            "parallel_processing_time": questions_processing_time,
+            "total_processing_time": total_processing_time,
+            "average_time_per_question": sum(individual_times) / len(individual_times),
+            "document_processing_time": doc_processing_time,
+            "embedding_warmup_time": embedding_warmup_time,
+            "transformation_enabled": request.enable_query_transformation if request.enable_query_transformation is not None else settings.enable_query_transformation,
+            "embedding_provider": settings.embedding_provider,
+            "embedding_dimension": rag_responses[0].pipeline_stats.get("model_info", {}).get("embedding_dimension", "unknown") if rag_responses else "unknown"
+        }
+        
+        # End question logging session
+        try:
+            session_end_metadata = {
+                **session_metadata,
+                "processing_summary": processing_summary,
+                "questions_with_transformation": transformations_successful,
+                "parallel_speedup": f"{parallel_speedup:.2f}x" if parallel_speedup > 1 else "1.0x",
+                "average_similarity_score": sum(sum(scores) for scores in [
+                    [source.get('similarity_score', 0.0) for source in resp.sources_used[:3]] 
+                    for resp in rag_responses
+                ]) / max(sum(len(resp.sources_used) for resp in rag_responses), 1)
+            }
+            
+            question_logger.end_session(
+                session_id=session_id,
+                document_url=str(request.documents),
+                doc_id=doc_id,
+                session_metadata=session_end_metadata
+            )
+        except Exception as log_error:
+            print(f"Warning: Failed to end question logging session: {log_error}")
+        
+        return SimpleQueryResponse(
+            answers=answers
+        )
         
     except HTTPException:
         raise
     except Exception as e:
         print(f"RAG pipeline error: {str(e)}")
+        
+        # Log error in question logging if session was started
+        try:
+            if 'session_id' in locals() and session_id:
+                question_logger.log_question(
+                    session_id=session_id,
+                    question_id=0,  # Error entry
+                    question="[SYSTEM ERROR]",
+                    processing_time=time.time() - total_start_time if 'total_start_time' in locals() else 0,
+                    answer=f"Processing failed: {str(e)}",
+                    sources_used=0,
+                    similarity_scores=[],
+                    error=str(e)
+                )
+                question_logger.end_session(
+                    session_id=session_id,
+                    document_url=str(request.documents) if 'request' in locals() else "unknown",
+                    doc_id="error",
+                    session_metadata={"error": str(e), "status": "failed"}
+                )
+        except Exception as log_error:
+            print(f"Failed to log error: {log_error}")
+        
         raise HTTPException(
             status_code=500,
             detail=f"RAG processing failed: {str(e)}"
@@ -193,6 +311,75 @@ async def get_system_stats(token: str = Depends(verify_token)):
             "system_status": "operational",
             "statistics": stats,
             "health": rag_coordinator.health_check()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Stats collection failed: {str(e)}"
+        )
+
+
+@router.get("/debug/query-transformation-metrics")
+async def get_query_transformation_metrics(token: str = Depends(verify_token)):
+    """Debug endpoint for detailed query transformation metrics and performance analysis"""
+    try:
+        rag_coordinator = get_rag_coordinator()
+        query_transformer = rag_coordinator.query_transformer
+        
+        # Get current configuration
+        transformer_stats = query_transformer.get_stats()
+        
+        # Create detailed metrics response
+        metrics = {
+            "transformation_status": "enabled" if settings.enable_query_transformation else "disabled",
+            "configuration": {
+                "enable_query_transformation": settings.enable_query_transformation,
+                "max_sub_queries": settings.max_sub_queries,
+                "query_transformation_timeout": settings.query_transformation_timeout,
+                "min_query_length": settings.min_query_length,
+                "transformation_temperature": settings.transformation_temperature
+            },
+            "model_info": {
+                "provider": transformer_stats["provider"],
+                "model": transformer_stats["model"],
+                "timeout": transformer_stats["timeout"]
+            },
+            "performance_guidelines": {
+                "best_for": [
+                    "Complex multi-part questions",
+                    "Comparison queries (e.g., 'Compare A and B')",
+                    "Questions with multiple concepts",
+                    "Policy documents with interconnected clauses"
+                ],
+                "expected_latency_increase": "1-3 seconds per query",
+                "recommended_use_cases": [
+                    "Insurance policy analysis",
+                    "Legal document review", 
+                    "Technical specification queries",
+                    "Compliance requirement analysis"
+                ]
+            },
+            "optimization_tips": [
+                "Questions under 20 characters are automatically skipped",
+                "Simple questions (single concept) won't be transformed",
+                "Set enable_query_transformation=false for speed-critical applications",
+                "Use transformation selectively for complex analytical queries"
+            ],
+            "health_check": {
+                "transformation_service": "operational",
+                "llm_provider_available": transformer_stats["provider"] != "none",
+                "configuration_valid": all([
+                    settings.max_sub_queries > 1,
+                    settings.query_transformation_timeout > 0,
+                    settings.min_query_length > 0
+                ])
+            }
+        }
+        
+        return {
+            "query_transformation_metrics": metrics,
+            "timestamp": time.time()
         }
         
     except Exception as e:
@@ -301,6 +488,7 @@ async def upload_file(
 async def upload_file_and_query(
     file: UploadFile = File(...),
     questions: str = Form(...),
+    enable_query_transformation: str = Form(None),
     token: str = Depends(verify_token)
 ):
     """
@@ -315,7 +503,7 @@ async def upload_file_and_query(
     import json
     
     try:
-        # Parse questions JSON
+        # Parse questions JSON and transformation parameter
         try:
             questions_list = json.loads(questions)
             if not isinstance(questions_list, list):
@@ -326,8 +514,19 @@ async def upload_file_and_query(
                 detail="Questions must be valid JSON array"
             )
         
+        # Parse transformation parameter
+        transformation_enabled = None
+        if enable_query_transformation is not None:
+            if enable_query_transformation.lower() in ['true', '1', 'yes']:
+                transformation_enabled = True
+            elif enable_query_transformation.lower() in ['false', '0', 'no']:
+                transformation_enabled = False
+        
+        print(f"Using embedding provider from config: {settings.embedding_provider}")
+        
         file_manager = get_file_manager()
         rag_coordinator = get_rag_coordinator()
+        question_logger = get_question_logger()
         
         # Upload the file
         file_info = await file_manager.save_uploaded_file(file)
@@ -337,27 +536,107 @@ async def upload_file_and_query(
             upload_url = f"upload://{file_info.file_id}"
             
             # Process document and answer questions
-            doc_result = await rag_coordinator.process_document(upload_url)
+            doc_result = await rag_coordinator.process_document(
+                url=upload_url
+            )
             doc_id = doc_result["doc_id"]
             
             print(f"Processed uploaded document: {file_info.original_filename}")
             print(f"  - File ID: {file_info.file_id}")
             print(f"  - Document ID: {doc_id}")
             
-            # Answer questions
+            # Start question logging session for uploaded file
+            session_metadata = {
+                "embedding_provider": settings.embedding_provider,
+                "llm_provider": settings.llm_provider,
+                "embedding_model": settings.embedding_model,
+                "total_questions": len(questions_list),
+                "query_transformation_enabled": transformation_enabled if transformation_enabled is not None else settings.enable_query_transformation,
+                "upload_method": "file_upload",
+                "original_filename": file_info.original_filename,
+                "file_id": file_info.file_id
+            }
+            
+            session_id = question_logger.start_session(
+                document_url=upload_url,
+                doc_id=doc_id,
+                metadata=session_metadata
+            )
+            
+            # Answer questions with transformation support
             answers = []
-            for question in questions_list:
-                rag_response = rag_coordinator.answer_question(
+            sources = []
+            query_transformations = []
+            processing_times = []
+            
+            for i, question in enumerate(questions_list, 1):
+                rag_response = await rag_coordinator.answer_question_async(
                     question=question,
                     doc_id=doc_id,
                     k_retrieve=settings.k_retrieve,
-                    max_context_length=6000
+                    max_context_length=settings.max_context_tokens,
+                    enable_transformation=transformation_enabled
                 )
                 answers.append(rag_response.answer)
+                sources.append(rag_response.sources_used)
+                query_transformations.append(rag_response.query_transformation)
+                processing_times.append(rag_response.processing_time)
+                
+                # Log question and response
+                try:
+                    similarity_scores = [source.get('similarity_score', 0.0) for source in rag_response.sources_used[:3]]
+                    
+                    question_logger.log_question(
+                        session_id=session_id,
+                        question_id=i,
+                        question=question,
+                        processing_time=rag_response.processing_time,
+                        answer=rag_response.answer,
+                        sources_used=len(rag_response.sources_used),
+                        similarity_scores=similarity_scores,
+                        error=None
+                    )
+                except Exception as log_error:
+                    print(f"Warning: Failed to log question {i}: {log_error}")
+            
+            # Calculate statistics
+            transformations_successful = sum(1 for qt in query_transformations 
+                                           if qt and qt.get('successful', False))
+            
+            processing_summary = {
+                "total_questions": len(questions_list),
+                "questions_with_transformation": transformations_successful,
+                "average_time_per_question": sum(processing_times) / len(processing_times),
+                "transformation_enabled": transformation_enabled if transformation_enabled is not None else settings.enable_query_transformation,
+                "embedding_provider": settings.embedding_provider,
+                "embedding_dimension": query_transformations[0].get("model_info", {}).get("embedding_dimension", "unknown") if query_transformations and query_transformations[0] else "unknown"
+            }
             
             print(f"Answered {len(questions_list)} questions for uploaded file")
+            if transformations_successful > 0:
+                print(f"  - {transformations_successful} questions used query transformation")
             
-            return QueryResponse(answers=answers)
+            # End question logging session
+            try:
+                session_end_metadata = {
+                    **session_metadata,
+                    "processing_summary": processing_summary,
+                    "questions_with_transformation": transformations_successful,
+                    "upload_processing": "completed"
+                }
+                
+                question_logger.end_session(
+                    session_id=session_id,
+                    document_url=upload_url,
+                    doc_id=doc_id,
+                    session_metadata=session_end_metadata
+                )
+            except Exception as log_error:
+                print(f"Warning: Failed to end upload question logging session: {log_error}")
+            
+            return SimpleQueryResponse(
+                answers=answers
+            )
             
         finally:
             # Clean up uploaded file after processing
@@ -494,4 +773,54 @@ async def get_file_manager_stats(token: str = Depends(verify_token)):
         raise HTTPException(
             status_code=500,
             detail=f"File manager stats collection failed: {str(e)}"
+        )
+
+
+@router.get("/debug/question-logs")
+async def get_question_logs(
+    days: int = 7,
+    token: str = Depends(verify_token)
+):
+    """Debug endpoint to view recent question logs"""
+    try:
+        question_logger = get_question_logger()
+        
+        # Get recent logs
+        recent_logs = question_logger.get_recent_logs(days=days)
+        
+        # Get statistics
+        stats = question_logger.get_stats()
+        
+        return {
+            "status": "operational",
+            "question_logging_stats": stats,
+            "recent_logs_count": len(recent_logs),
+            "recent_logs": recent_logs[:10] if recent_logs else [],  # Limit to 10 most recent
+            "days_requested": days
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Question logs retrieval failed: {str(e)}"
+        )
+
+
+@router.post("/debug/cleanup-question-logs")
+async def cleanup_question_logs(token: str = Depends(verify_token)):
+    """Debug endpoint to manually cleanup old question logs"""
+    try:
+        question_logger = get_question_logger()
+        archived_count = question_logger.cleanup_old_logs()
+        
+        return {
+            "status": "success",
+            "archived_files": archived_count,
+            "message": f"Successfully archived {archived_count} old log files"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Question log cleanup failed: {str(e)}"
         )

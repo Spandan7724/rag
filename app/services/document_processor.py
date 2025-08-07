@@ -14,6 +14,10 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.directories import ensure_directories, create_directory
+from app.services.extractors import (
+    FileTypeDetector, PDFExtractor, ExcelExtractor, WordExtractor,
+    PowerPointExtractor, TextExtractor, ImageExtractor
+)
 
 
 @dataclass
@@ -30,15 +34,28 @@ class DocumentProcessor:
     """Handles PDF download, text extraction, and blob storage"""
     
     def __init__(self):
-        """Initialize document processor"""
+        """Initialize document processor with multi-format support"""
         # Ensure all required directories exist
         ensure_directories()
         
         # Create specific directories for this service
         if settings.save_pdf_blobs:
-            create_directory(settings.pdf_blob_dir, "PDF blob storage")
+            create_directory(settings.pdf_blob_dir, "document blob storage")
         if settings.save_parsed_text:
             create_directory(settings.parsed_text_dir, "parsed text storage")
+        
+        # Initialize file type detector and extractors
+        self.file_detector = FileTypeDetector()
+        self.extractors = {
+            'pdf': PDFExtractor(),
+            'excel': ExcelExtractor(),
+            'word': WordExtractor(),
+            'powerpoint': PowerPointExtractor(),
+            'text': TextExtractor(),
+            'image': ImageExtractor()
+        }
+        
+        print(f"Document processor initialized with support for: {list(self.extractors.keys())}")
     
     async def download_pdf(self, url: str) -> bytes:
         """
@@ -1013,13 +1030,13 @@ class DocumentProcessor:
     
     def _format_dataframe_as_table(self, df) -> str:
         """
-        Format DataFrame as a well-structured table string
+        Format DataFrame as a simple, human-readable text string.
         
         Args:
             df: pandas DataFrame
             
         Returns:
-            Formatted table string
+            Formatted plain text string representing the table data.
         """
         try:
             import pandas as pd
@@ -1027,104 +1044,35 @@ class DocumentProcessor:
             if df.empty:
                 return ""
             
-            # Convert all cells to strings and clean them
-            df_str = df.astype(str)
-            
-            # Smart column width calculation
-            num_cols = len(df_str.columns)
-            col_widths = []
-            
-            for i, col in enumerate(df_str.columns):
-                header_text = str(col) if col else f"Col_{i+1}"
-                header_width = len(header_text)
+            # Get column headers
+            headers = df.columns.tolist()
+            text_lines = []
+
+            # Add a clear header for the table's content
+            text_lines.append("The document includes a table with the following information:")
+
+            # Iterate over each row in the DataFrame
+            for index, row in df.iterrows():
+                row_parts = []
+                # Combine header and cell value for each item in the row
+                for header in headers:
+                    cell_value = str(row[header]).strip()
+                    if cell_value and cell_value.lower() != 'nan':
+                        # Create a "key: value" pair
+                        row_parts.append(f"{str(header).strip()}: {cell_value}")
                 
-                # Calculate max content width for this column
-                max_content_width = 0
-                if len(df_str[col]) > 0:
-                    for cell in df_str[col]:
-                        cell_lines = str(cell).split('\n')
-                        max_line_width = max(len(line) for line in cell_lines) if cell_lines else 0
-                        max_content_width = max(max_content_width, max_line_width)
-                
-                # Set reasonable column widths based on position and content
-                if i == 0:  # First column (Sr. No.) - keep narrow
-                    col_width = max(header_width, min(max_content_width, 15))
-                elif i == 1:  # Second column (Treatment Methods) - medium width
-                    col_width = max(header_width, min(max_content_width, 60))
-                else:  # Other columns - flexible width
-                    col_width = max(header_width, min(max_content_width, 80))
-                
-                col_widths.append(max(col_width, 8))  # Minimum width of 8
-            
-            # Format header
-            formatted_lines = []
-            if num_cols > 1:
-                header_cells = []
-                for i, col in enumerate(df_str.columns):
-                    header_text = str(col) if col else f"Col_{i+1}"
-                    # Clean up header text
-                    header_text = ' '.join(header_text.split())  # Remove extra whitespace
-                    header_cells.append(header_text.ljust(col_widths[i]))
-                
-                header_line = " | ".join(header_cells)
-                formatted_lines.append(header_line)
-                formatted_lines.append("-" * len(header_line))
-            
-            # Format data rows with better text handling
-            for _, row in df_str.iterrows():
-                # Handle multi-line cells by processing each line
-                max_lines = 1
-                processed_cells = []
-                
-                for i, cell in enumerate(row):
-                    cell_text = str(cell) if pd.notna(cell) and cell != 'nan' and cell != '' else ""
-                    # Clean up cell text
-                    cell_text = ' '.join(cell_text.split())  # Remove extra whitespace
-                    
-                    # Handle long content with intelligent wrapping
-                    if len(cell_text) > col_widths[i]:
-                        # For long content, wrap intelligently
-                        wrapped_lines = []
-                        remaining = cell_text
-                        while remaining:
-                            if len(remaining) <= col_widths[i]:
-                                wrapped_lines.append(remaining)
-                                break
-                            else:
-                                # Try to break at word boundary
-                                break_point = col_widths[i]
-                                space_pos = remaining.rfind(' ', 0, break_point)
-                                if space_pos > col_widths[i] * 0.7:  # Good break point found
-                                    wrapped_lines.append(remaining[:space_pos])
-                                    remaining = remaining[space_pos + 1:]
-                                else:
-                                    # No good break point, just cut
-                                    wrapped_lines.append(remaining[:break_point])
-                                    remaining = remaining[break_point:]
-                        processed_cells.append(wrapped_lines)
-                        max_lines = max(max_lines, len(wrapped_lines))
-                    else:
-                        processed_cells.append([cell_text])
-                
-                # Output the row(s)
-                for line_idx in range(max_lines):
-                    row_cells = []
-                    for i, cell_lines in enumerate(processed_cells):
-                        if line_idx < len(cell_lines):
-                            text = cell_lines[line_idx]
-                        else:
-                            text = ""
-                        row_cells.append(text.ljust(col_widths[i]))
-                    
-                    row_line = " | ".join(row_cells)
-                    if row_line.strip():  # Only add non-empty rows
-                        formatted_lines.append(row_line)
-            
-            return "\n".join(formatted_lines)
-            
+                # Join the parts into a single line of text for the row
+                if row_parts:
+                    # Start with a clear identifier for the row
+                    row_text = f"- For row {index + 1}, the details are: " + "; ".join(row_parts) + "."
+                    text_lines.append(row_text)
+
+            # Join all lines with a newline character
+            return "\n".join(text_lines)
+
         except Exception as e:
-            print(f"DataFrame formatting failed: {e}")
-            # Fallback to simple string conversion
+            print(f"DataFrame formatting to plain text failed: {e}")
+            # Fallback to a very simple string conversion if the primary method fails
             return df.to_string(index=False, header=True)
     
     def extract_tables_with_pdfplumber(self, pdf_data: bytes, page_num: int) -> str:
@@ -1354,12 +1302,130 @@ class DocumentProcessor:
         # Create proper file URL
         return f"file://{urllib.parse.quote(str(abs_path))}"
     
-    async def process_document(self, url: str) -> ProcessedDocument:
+    def extract_text_from_document(self, file_data: bytes, url: str) -> Dict[str, Any]:
         """
-        Complete document processing pipeline
+        Extract text from any supported document format with zero content handling
         
         Args:
-            url: URL to process
+            file_data: Document bytes
+            url: Original URL for filename detection
+            
+        Returns:
+            Dict with text, pages, metadata, and page_texts
+        """
+        start_time = time.time()
+        filename = url.split('/')[-1] if '/' in url else url
+        
+        print(f"Processing document: {filename} ({len(file_data):,} bytes)")
+        
+        try:
+            # Detect file type
+            detected_type = self.file_detector.detect_file_type(file_data, filename)
+            print(f"Detected file type: {detected_type.mime_type} -> {detected_type.extractor_type}")
+            
+            # Check if file type is supported
+            if not detected_type.is_supported or not detected_type.extractor_type:
+                raise ValueError(
+                    f"Unsupported file type: {detected_type.mime_type}\n"
+                    f"Supported types: {list(self.extractors.keys())}\n"
+                    f"File: {filename}"
+                )
+            
+            # Get appropriate extractor
+            extractor = self.extractors.get(detected_type.extractor_type)
+            if not extractor:
+                raise ValueError(f"No extractor available for type: {detected_type.extractor_type}")
+            
+            # Extract text using appropriate extractor
+            extraction_result = extractor.extract_text(file_data, filename)
+            
+            # Validate extraction result and handle zero content
+            if not extraction_result.text or len(extraction_result.text.strip()) == 0:
+                print("WARNING: No text extracted from document")
+                # Create meaningful error message instead of empty content
+                error_text = f"[No text content found in file: {filename}]\n"
+                error_text += f"[File type: {detected_type.extractor_type}]\n"
+                error_text += f"[File size: {len(file_data):,} bytes]\n"
+                error_text += f"[Recommendation: Check if file contains readable text content]"
+                
+                extraction_result.text = error_text
+                extraction_result.metadata.update({
+                    'extraction_status': 'no_content',
+                    'warning': 'No readable text found in document'
+                })
+            else:
+                extraction_result.metadata['extraction_status'] = 'success'
+            
+            # Handle zero pages (division by zero prevention)
+            if extraction_result.pages <= 0:
+                print("WARNING: Zero pages detected, setting to 1")
+                extraction_result.pages = 1
+            
+            processing_time = time.time() - start_time
+            
+            # Convert ExtractionResult to legacy format for compatibility
+            result = {
+                'text': extraction_result.text,
+                'pages': extraction_result.pages,
+                'metadata': {
+                    **extraction_result.metadata,
+                    'total_processing_time': processing_time,
+                    'file_type_detected': detected_type.mime_type,
+                    'extractor_used': detected_type.extractor_type,
+                    'file_size_bytes': len(file_data)
+                },
+                'page_texts': getattr(extraction_result, 'page_texts', None) or [extraction_result.text]
+            }
+            
+            print(f"Document processing completed:")
+            print(f"  - Type: {detected_type.extractor_type}")
+            print(f"  - Pages: {extraction_result.pages}")
+            print(f"  - Text length: {len(extraction_result.text)} characters")
+            print(f"  - Processing time: {processing_time:.2f}s")
+            
+            return result
+            
+        except Exception as e:
+            # Handle extraction errors gracefully
+            processing_time = time.time() - start_time
+            
+            error_text = f"[Document processing failed: {filename}]\n"
+            error_text += f"[Error: {str(e)}]\n"
+            error_text += f"[File size: {len(file_data):,} bytes]\n"
+            
+            # Try to provide helpful error information
+            try:
+                detected_type = self.file_detector.detect_file_type(file_data, filename)
+                error_text += f"[Detected type: {detected_type.mime_type}]\n"
+                if detected_type.is_supported:
+                    error_text += f"[This file type should be supported - please check file integrity]"
+                else:
+                    supported_types = self.file_detector.get_supported_types()
+                    error_text += f"[Supported extensions: {', '.join(supported_types['extensions'])}]"
+            except Exception:
+                error_text += f"[Could not detect file type - file may be corrupted]"
+            
+            # Return error result instead of raising exception
+            return {
+                'text': error_text,
+                'pages': 1,
+                'metadata': {
+                    'extraction_status': 'failed',
+                    'error': str(e),
+                    'file_type_detected': 'unknown',
+                    'extractor_used': 'none',
+                    'file_size_bytes': len(file_data),
+                    'total_processing_time': processing_time
+                },
+                'page_texts': [error_text]
+            }
+    
+    async def process_document(self, url: str) -> ProcessedDocument:
+        """
+        Complete multi-format document processing pipeline
+        
+        Args:
+            url: URL to process (supports PDF, Excel, Word, PowerPoint, Text, Images)
             
         Returns:
             ProcessedDocument with all extracted data
@@ -1369,14 +1435,14 @@ class DocumentProcessor:
         # Generate document ID
         doc_id = self.generate_doc_id(url)
         
-        # Download PDF
-        pdf_data = await self.download_pdf(url)
+        # Download document (renamed from download_pdf)
+        document_data = await self.download_pdf(url)  # Keep existing method name for compatibility
         
-        # Extract text and metadata
-        extraction_result = self.extract_text_from_pdf(pdf_data)
+        # Detect file type and extract text
+        extraction_result = self.extract_text_from_document(document_data, url)
         
-        # Save blob if enabled
-        blob_path = self.save_pdf_blob(pdf_data, url, extraction_result["metadata"])
+        # Save blob if enabled (works for any file type)
+        blob_path = self.save_pdf_blob(document_data, url, extraction_result["metadata"])
         
         # Save parsed text if enabled
         text_path = self.save_parsed_text(

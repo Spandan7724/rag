@@ -20,3 +20,12 @@ vector_store/
 repomix-output.xml
 server_logs.xml
 question_logs/
+SIMPLIFICATION_PLAN.md
+quick_rag_test.py
+quick_test_results_20250807_234034.json
+rag_performance_test.py
+rag_test_results_20250807_235129.csv
+rag_test_results_20250807_235129.json
+rag_test_results_20250807_235129_answers.txt
+server_logs.txt
+api_endpoint_test.py

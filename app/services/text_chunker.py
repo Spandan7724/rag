@@ -36,13 +36,18 @@ class TextChunker:
     
     def __init__(self):
         """Initialize text chunker"""
-        self.tokenizer = tiktoken.get_encoding("cl100k_base")  # Standard tokenizer
+        # Use BGE-M3 compatible tokenizer - BGE-M3 uses XLM-RoBERTa tokenizer
+        # For now, approximate with cl100k_base but adjust token counts by factor
+        self.tokenizer = tiktoken.get_encoding("cl100k_base")  
+        self.bge_token_adjustment = 1.2  # BGE-M3 typically uses ~20% more tokens than cl100k_base
         self.max_tokens = settings.chunk_size  # Use configured chunk size from settings
         self.overlap_tokens = settings.chunk_overlap  # Use configured overlap from settings
     
     def count_tokens(self, text: str) -> int:
-        """Count tokens in text"""
-        return len(self.tokenizer.encode(text))
+        """Count tokens in text (adjusted for BGE-M3 compatibility)"""
+        base_tokens = len(self.tokenizer.encode(text))
+        # Adjust for BGE-M3's XLM-RoBERTa tokenizer which typically uses more tokens
+        return int(base_tokens * self.bge_token_adjustment)
     
     def detect_section_headers(self, text: str) -> List[Tuple[int, str, str]]:
         """

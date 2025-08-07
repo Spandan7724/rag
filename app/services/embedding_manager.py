@@ -1,15 +1,20 @@
 """
-Embedding service using BGE-M3 for text embeddings
+Multi-provider embedding service supporting BGE-M3 and Gemini embeddings
 """
 import time
 import threading
 import torch
 import numpy as np
-from typing import List, Dict, Any, Optional
+import asyncio
+import logging
+from typing import List, Dict, Any, Optional, Protocol
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 
 from app.services.text_chunker import TextChunk
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,11 +25,40 @@ class EmbeddingResult:
     model_info: Dict[str, Any]
 
 
-class EmbeddingManager:
-    """Manages BGE-M3 embeddings generation"""
+class EmbeddingProvider(ABC):
+    """Abstract base class for embedding providers"""
+    
+    @abstractmethod
+    async def embed_texts(self, texts: List[str]) -> EmbeddingResult:
+        """Generate embeddings for a list of texts"""
+        pass
+    
+    @abstractmethod
+    async def embed_query(self, query: str) -> np.ndarray:
+        """Generate embedding for a single query"""
+        pass
+    
+    @abstractmethod
+    def get_embedding_dimension(self) -> int:
+        """Get the embedding dimension"""
+        pass
+    
+    @abstractmethod
+    def get_model_info(self) -> Dict[str, Any]:
+        """Get model information"""
+        pass
+    
+    @abstractmethod
+    def is_available(self) -> bool:
+        """Check if provider is available"""
+        pass
+
+
+class BGEEmbeddingProvider(EmbeddingProvider):
+    """BGE-M3 embedding provider (existing implementation)"""
     
     def __init__(self):
-        """Initialize embedding manager"""
+        """Initialize BGE-M3 embedding provider"""
         self.model = None
         self.device = settings.embedding_device
         self.model_name = settings.embedding_model
@@ -96,7 +130,7 @@ class EmbeddingManager:
         """Check if model is loaded without triggering loading"""
         return self._model_loaded and self.model is not None
     
-    def encode_texts(self, texts: List[str]) -> np.ndarray:
+    async def embed_texts(self, texts: List[str]) -> EmbeddingResult:
         """
         Generate embeddings for a list of texts
         
@@ -104,52 +138,75 @@ class EmbeddingManager:
             texts: List of text strings to embed
             
         Returns:
-            Numpy array of embeddings (n_texts, embedding_dim)
+            EmbeddingResult with embeddings and metadata
         """
         if not texts:
-            return np.array([])
-        
-        self._load_model()
-        
-        print(f"Generating embeddings for {len(texts)} texts...")
-        start_time = time.time()
-        
-        try:
-            # Use BGE-M3's encode method
-            result = self.model.encode(
-                texts,
-                batch_size=32,  # Process in batches for efficiency
-                max_length=settings.max_tokens_per_chunk,  # BGE-M3 supports up to 8192 tokens
-                return_dense=True,  # We want dense embeddings for vector search
-                return_sparse=False,  # Don't need sparse embeddings for this use case
-                return_colbert_vecs=False  # Don't need ColBERT vectors
+            return EmbeddingResult(
+                embeddings=np.array([]),
+                processing_time=0.0,
+                model_info=self.get_model_info()
             )
+        
+        # Run in thread pool since BGE-M3 is CPU/GPU bound
+        def _generate_embeddings():
+            self._load_model()
             
-            # Extract dense embeddings from result dict
-            if isinstance(result, dict):
-                embeddings = result['dense_vecs']
-            else:
-                embeddings = result
+            print(f"Generating embeddings for {len(texts)} texts...")
+            start_time = time.time()
             
-            # Convert to numpy array if needed
-            if hasattr(embeddings, 'numpy'):
-                embeddings = embeddings.numpy()
-            elif torch.is_tensor(embeddings):
-                embeddings = embeddings.cpu().numpy()
-            
-            # Ensure 2D array
-            if embeddings.ndim == 1:
-                embeddings = embeddings.reshape(1, -1)
-            
-            generation_time = time.time() - start_time
-            print(f"Generated embeddings in {generation_time:.2f}s")
-            print(f"Embedding shape: {embeddings.shape}")
-            print(f"Speed: {len(texts) / generation_time:.1f} texts/second")
-            
-            return embeddings
-            
-        except Exception as e:
-            raise RuntimeError(f"Embedding generation failed: {str(e)}")
+            try:
+                # Use BGE-M3's encode method
+                result = self.model.encode(
+                    texts,
+                    batch_size=32,  # Process in batches for efficiency
+                    max_length=settings.max_tokens_per_chunk,  # BGE-M3 supports up to 8192 tokens
+                    return_dense=True,  # We want dense embeddings for vector search
+                    return_sparse=False,  # Don't need sparse embeddings for this use case
+                    return_colbert_vecs=False  # Don't need ColBERT vectors
+                )
+                
+                # Extract dense embeddings from result dict
+                if isinstance(result, dict):
+                    embeddings = result['dense_vecs']
+                else:
+                    embeddings = result
+                
+                # Convert to numpy array if needed
+                if hasattr(embeddings, 'numpy'):
+                    embeddings = embeddings.numpy()
+                elif torch.is_tensor(embeddings):
+                    embeddings = embeddings.cpu().numpy()
+                
+                # Ensure 2D array
+                if embeddings.ndim == 1:
+                    embeddings = embeddings.reshape(1, -1)
+                
+                # Normalize BGE-M3 embeddings for consistent similarity calculations
+                embeddings = self._normalize_embeddings(embeddings)
+                
+                processing_time = time.time() - start_time
+                print(f"Generated embeddings in {processing_time:.2f}s")
+                print(f"Embedding shape: {embeddings.shape}")
+                print(f"Speed: {len(texts) / processing_time:.1f} texts/second")
+                
+                return EmbeddingResult(
+                    embeddings=embeddings,
+                    processing_time=processing_time,
+                    model_info=self.get_model_info()
+                )
+                
+            except Exception as e:
+                raise RuntimeError(f"Embedding generation failed: {str(e)}")
+        
+        # Execute directly - BGE-M3 is GPU-optimized
+        return _generate_embeddings()
+    
+    def _normalize_embeddings(self, embeddings: np.ndarray) -> np.ndarray:
+        """Normalize embeddings to unit vectors for consistent similarity calculations"""
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        # Avoid division by zero
+        norms = np.maximum(norms, 1e-12)
+        return embeddings / norms
     
     def encode_chunks(self, chunks: List[TextChunk]) -> EmbeddingResult:
         """
@@ -194,7 +251,7 @@ class EmbeddingManager:
             model_info=model_info
         )
     
-    def encode_query(self, query: str) -> np.ndarray:
+    async def embed_query(self, query: str) -> np.ndarray:
         """
         Generate embedding for a single query
         
@@ -204,47 +261,66 @@ class EmbeddingManager:
         Returns:
             Numpy array of query embedding (1, embedding_dim)
         """
-        self._load_model()
+        def _generate_query_embedding():
+            self._load_model()
+            
+            print(f"Generating embedding for query: {query[:50]}...")
+            start_time = time.time()
+            
+            try:
+                # Generate query embedding
+                result = self.model.encode(
+                    [query],
+                    batch_size=1,
+                    max_length=512,  # Queries are typically shorter
+                    return_dense=True,
+                    return_sparse=False,
+                    return_colbert_vecs=False
+                )
+                
+                # Extract dense embeddings from result dict
+                if isinstance(result, dict):
+                    embedding = result['dense_vecs']
+                else:
+                    embedding = result
+                
+                # Convert to numpy array
+                if hasattr(embedding, 'numpy'):
+                    embedding = embedding.numpy()
+                elif torch.is_tensor(embedding):
+                    embedding = embedding.cpu().numpy()
+                
+                # Ensure 2D array
+                if embedding.ndim == 1:
+                    embedding = embedding.reshape(1, -1)
+                
+                # Normalize query embedding for consistent similarity calculations
+                embedding = self._normalize_embeddings(embedding)
+                
+                generation_time = time.time() - start_time
+                print(f"Generated query embedding in {generation_time:.2f}s")
+                print(f"Embedding shape: {embedding.shape}")
+                print(f"Speed: {1 / generation_time:.1f} queries/second")
+                
+                return embedding
+                
+            except Exception as e:
+                raise RuntimeError(f"Query embedding generation failed: {str(e)}")
         
-        print(f"Generating embedding for query: {query[:50]}...")
-        start_time = time.time()
-        
+        # Execute directly - BGE-M3 is GPU-optimized
+        return _generate_query_embedding()
+    
+    def get_embedding_dimension(self) -> int:
+        """Get the embedding dimension for BGE-M3"""
+        return 1024  # BGE-M3 embedding dimension
+    
+    def is_available(self) -> bool:
+        """Check if BGE-M3 is available"""
         try:
-            # Generate query embedding
-            result = self.model.encode(
-                [query],
-                batch_size=1,
-                max_length=512,  # Queries are typically shorter
-                return_dense=True,
-                return_sparse=False,
-                return_colbert_vecs=False
-            )
-            
-            # Extract dense embeddings from result dict
-            if isinstance(result, dict):
-                embedding = result['dense_vecs']
-            else:
-                embedding = result
-            
-            # Convert to numpy array
-            if hasattr(embedding, 'numpy'):
-                embedding = embedding.numpy()
-            elif torch.is_tensor(embedding):
-                embedding = embedding.cpu().numpy()
-            
-            # Ensure 2D array
-            if embedding.ndim == 1:
-                embedding = embedding.reshape(1, -1)
-            
-            generation_time = time.time() - start_time
-            print(f"Generated query embedding in {generation_time:.2f}s")
-            print(f"Embedding shape: {embedding.shape}")
-            print(f"Speed: {1 / generation_time:.1f} queries/second")
-            
-            return embedding
-            
-        except Exception as e:
-            raise RuntimeError(f"Query embedding generation failed: {str(e)}")
+            import FlagEmbedding
+            return True
+        except ImportError:
+            return False
     
     def get_model_info(self) -> Dict[str, Any]:
         """Get information about the loaded model"""
@@ -263,6 +339,194 @@ class EmbeddingManager:
             "max_input_length": settings.max_tokens_per_chunk,
             "supports_multilingual": True
         }
+
+
+class GeminiEmbeddingAdapter(EmbeddingProvider):
+    """Adapter for Gemini embeddings to match the EmbeddingProvider interface"""
+    
+    def __init__(self):
+        """Initialize Gemini embedding adapter"""
+        from app.services.gemini_embeddings import get_gemini_embedding_provider
+        self._provider = get_gemini_embedding_provider()
+        logger.info("Initialized Gemini embedding adapter")
+    
+    async def embed_texts(self, texts: List[str]) -> EmbeddingResult:
+        """Generate embeddings using Gemini API"""
+        gemini_result = await self._provider.embed_documents(texts)
+        
+        # Convert to EmbeddingResult format
+        return EmbeddingResult(
+            embeddings=gemini_result.embeddings,
+            processing_time=gemini_result.processing_time,
+            model_info=gemini_result.model_info
+        )
+    
+    async def embed_query(self, query: str) -> np.ndarray:
+        """Generate query embedding using Gemini API"""
+        return await self._provider.embed_query(query)
+    
+    def get_embedding_dimension(self) -> int:
+        """Get embedding dimension from Gemini provider"""
+        return self._provider.get_embedding_dimension()
+    
+    def get_model_info(self) -> Dict[str, Any]:
+        """Get model info from Gemini provider"""
+        return self._provider.get_model_info()
+    
+    def is_available(self) -> bool:
+        """Check if Gemini provider is available"""
+        return self._provider.is_available()
+
+
+class EmbeddingManager:
+    """
+    Multi-provider embedding manager supporting BGE-M3 and Gemini embeddings
+    
+    This class acts as a factory and provides a unified interface for different
+    embedding providers while maintaining backward compatibility.
+    """
+    
+    def __init__(self, provider: Optional[str] = None):
+        """
+        Initialize embedding manager with specified provider
+        
+        Args:
+            provider: Optional provider name override
+        """
+        self.provider_name = provider or settings.embedding_provider
+        self._provider: Optional[EmbeddingProvider] = None
+        
+        logger.info(f"Initializing EmbeddingManager with provider: {self.provider_name}")
+        
+        # Initialize provider
+        self._init_provider()
+    
+    def _init_provider(self):
+        """Initialize the selected embedding provider"""
+        try:
+            if self.provider_name == "gemini":
+                self._provider = GeminiEmbeddingAdapter()
+                logger.info("Using Gemini embeddings")
+            elif self.provider_name == "bge-m3":
+                self._provider = BGEEmbeddingProvider()
+                logger.info("Using BGE-M3 embeddings")
+            else:
+                raise ValueError(f"Unknown embedding provider: {self.provider_name}")
+            
+            # Validate provider is available
+            if not self._provider.is_available():
+                logger.error(f"Provider {self.provider_name} is not available")
+                # Fallback to BGE-M3 if Gemini fails
+                if self.provider_name == "gemini":
+                    logger.info("Falling back to BGE-M3 embeddings")
+                    self.provider_name = "bge-m3"
+                    self._provider = BGEEmbeddingProvider()
+                    if not self._provider.is_available():
+                        raise RuntimeError("No embedding providers available")
+                else:
+                    raise RuntimeError(f"Provider {self.provider_name} is not available")
+        
+        except Exception as e:
+            logger.error(f"Failed to initialize provider {self.provider_name}: {str(e)}")
+            raise
+    
+    async def encode_texts(self, texts: List[str]) -> np.ndarray:
+        """
+        Generate embeddings for texts (backward compatibility method)
+        
+        Args:
+            texts: List of text strings to embed
+            
+        Returns:
+            Numpy array of embeddings
+        """
+        result = await self._provider.embed_texts(texts)
+        return result.embeddings
+    
+    async def encode_chunks(self, chunks: List[TextChunk]) -> EmbeddingResult:
+        """
+        Generate embeddings for text chunks (backward compatibility method)
+        
+        Args:
+            chunks: List of TextChunk objects
+            
+        Returns:
+            EmbeddingResult with embeddings and metadata
+        """
+        start_time = time.time()
+        
+        # Extract texts from chunks
+        texts = [chunk.text for chunk in chunks]
+        
+        # Generate embeddings
+        result = await self._provider.embed_texts(texts)
+        
+        # Add chunk-specific metadata
+        result.model_info.update({
+            "num_chunks": len(chunks),
+            "total_tokens": sum(chunk.token_count for chunk in chunks),
+            "processing_speed": len(chunks) / result.processing_time if result.processing_time > 0 else 0
+        })
+        
+        logger.info(f"Chunk embedding completed:")
+        logger.info(f"  - Chunks processed: {len(chunks)}")
+        logger.info(f"  - Embedding dimension: {result.embeddings.shape[1] if result.embeddings.size > 0 else 0}")
+        logger.info(f"  - Total tokens: {sum(chunk.token_count for chunk in chunks):,}")
+        logger.info(f"  - Processing time: {result.processing_time:.2f}s")
+        logger.info(f"  - Speed: {len(chunks) / result.processing_time:.1f} chunks/second")
+        
+        return result
+    
+    async def encode_query(self, query: str) -> np.ndarray:
+        """
+        Generate embedding for a query (backward compatibility method)
+        
+        Args:
+            query: Query string
+            
+        Returns:
+            Query embedding array
+        """
+        return await self._provider.embed_query(query)
+    
+    def ensure_model_ready(self) -> bool:
+        """
+        Ensure the model is ready for use (backward compatibility)
+        
+        Returns:
+            True if model is ready
+        """
+        try:
+            return self._provider.is_available()
+        except Exception as e:
+            logger.error(f"Model readiness check failed: {str(e)}")
+            return False
+    
+    def is_model_loaded(self) -> bool:
+        """
+        Check if model is loaded (backward compatibility)
+        
+        Returns:
+            True if model is loaded
+        """
+        return self._provider is not None and self._provider.is_available()
+    
+    def get_embedding_dimension(self) -> int:
+        """Get the embedding dimension for the current provider"""
+        return self._provider.get_embedding_dimension()
+    
+    def get_model_info(self) -> Dict[str, Any]:
+        """Get model information from current provider"""
+        info = self._provider.get_model_info()
+        info.update({
+            "provider_name": self.provider_name,
+            "manager_version": "2.0_multi_provider"
+        })
+        return info
+    
+    def get_provider_name(self) -> str:
+        """Get the current provider name"""
+        return self.provider_name
 
 
 # Singleton instance

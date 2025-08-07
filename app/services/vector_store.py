@@ -60,7 +60,7 @@ class VectorStore:
         
         # FAISS index
         self.index: Optional[faiss.Index] = None
-        self.embedding_dim = 1024  # BGE-M3 dimension
+        self.embedding_dim: Optional[int] = None  # Dynamic dimension detection
         
         # Storage for chunks and metadata
         self.chunk_texts: List[str] = []
@@ -81,13 +81,34 @@ class VectorStore:
             print(f"Loaded existing index with {self.index.ntotal} vectors")
             print(f"Tracking {len(self.documents)} documents")
     
-    def _create_index(self) -> faiss.Index:
-        """Create a new FAISS index"""
+    def _create_index(self, dimension: int) -> faiss.Index:
+        """Create a new FAISS index with specified dimension"""
         # Use HNSW index for good performance and recall
-        index = faiss.IndexHNSWFlat(self.embedding_dim, 32)
+        index = faiss.IndexHNSWFlat(dimension, 32)
         index.hnsw.efConstruction = 128
         index.hnsw.efSearch = 64
         return index
+    
+    def _detect_embedding_dimension(self, embeddings: np.ndarray) -> int:
+        """Detect and validate embedding dimension"""
+        if embeddings.ndim != 2:
+            raise ValueError(f"Embeddings must be 2D array, got {embeddings.ndim}D")
+        
+        detected_dim = embeddings.shape[1]
+        
+        if self.embedding_dim is None:
+            # First time - set the dimension
+            self.embedding_dim = detected_dim
+            print(f"Detected embedding dimension: {self.embedding_dim}")
+        elif self.embedding_dim != detected_dim:
+            # Dimension mismatch
+            raise ValueError(
+                f"Embedding dimension mismatch: expected {self.embedding_dim}, got {detected_dim}. "
+                f"All embeddings in a vector store must have the same dimension. "
+                f"Clear the vector store to use a different embedding model."
+            )
+        
+        return detected_dim
     
     def _load_from_disk(self):
         """Load existing index and metadata from disk"""
@@ -95,7 +116,10 @@ class VectorStore:
             # Load FAISS index
             if self.index_path.exists():
                 self.index = faiss.read_index(str(self.index_path))
-                print(f"Loaded FAISS index with {self.index.ntotal} vectors")
+                # Detect dimension from existing index
+                if hasattr(self.index, 'd'):
+                    self.embedding_dim = self.index.d
+                print(f"Loaded FAISS index with {self.index.ntotal} vectors, dimension: {self.embedding_dim}")
             
             # Load chunk texts
             if self.texts_path.exists():
@@ -227,9 +251,12 @@ class VectorStore:
         if len(chunks) != embeddings.shape[0]:
             raise ValueError(f"Chunk count ({len(chunks)}) doesn't match embeddings ({embeddings.shape[0]})")
         
+        # Detect and validate embedding dimension
+        self._detect_embedding_dimension(embeddings)
+        
         # Create index if it doesn't exist
         if self.index is None:
-            self.index = self._create_index()
+            self.index = self._create_index(self.embedding_dim)
             print("Created new FAISS index")
         
         # Store chunk data
@@ -319,9 +346,14 @@ class VectorStore:
         if doc_id_filter:
             print(f"  - Filtering by doc_id: {doc_id_filter}")
         
-        # Normalize query embedding
-        query_norm = query_embedding / np.linalg.norm(query_embedding)
-        query_norm = query_norm.reshape(1, -1).astype(np.float32)
+        # Normalize query embedding (consistent with stored embeddings)
+        query_norm = query_embedding.astype(np.float32)
+        if query_norm.ndim == 1:
+            query_norm = query_norm.reshape(1, -1)
+        
+        # Apply same normalization as stored embeddings
+        norms = np.linalg.norm(query_norm, axis=1, keepdims=True)
+        query_norm = query_norm / norms
         
         # Search FAISS index
         # Search more broadly if we need to filter
@@ -350,6 +382,11 @@ class VectorStore:
             if doc_id_filter and metadata.doc_id != doc_id_filter:
                 continue
             
+            # Apply similarity threshold filter (for L2 distance, smaller = more similar)
+            from app.core.config import settings
+            if float(similarity) > settings.similarity_threshold:
+                continue  # Skip chunks that are too dissimilar
+            
             result = SearchResult(
                 chunk_index=chunk_idx,
                 similarity_score=float(similarity),
@@ -373,7 +410,7 @@ class VectorStore:
             "total_vectors": self.index.ntotal if self.index else 0,
             "total_documents": len(self.documents),
             "total_chunks": len(self.chunk_texts),
-            "embedding_dimension": self.embedding_dim,
+            "embedding_dimension": self.embedding_dim or 0,
             "storage_size_mb": self._estimate_storage_size() / 1024 / 1024,
             "index_type": "HNSW",
             "storage_path": str(self.storage_path)
