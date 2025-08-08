@@ -1,0 +1,504 @@
+{
+  "test_summary": {
+    "total_tests": 70,
+    "successful_tests": 7,
+    "failed_tests": 63,
+    "success_rate": 0.1,
+    "test_timestamp": "2025-08-08T02:08:32.892437",
+    "total_documents": 7
+  },
+  "performance_metrics": {
+    "latency": {
+      "mean_ms": 6241.515891892569,
+      "median_ms": 3776.1573791503906,
+      "min_ms": 1783.7734699249268,
+      "max_ms": 22510.130763053894,
+      "std_dev_ms": 7283.8848625888595
+    },
+    "throughput": {
+      "avg_questions_per_minute": 9.613049303925852,
+      "total_test_time_minutes": 0.7281768540541331
+    }
+  },
+  "accuracy_metrics": {
+    "fuzzy_similarity": {
+      "mean": 0.0,
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "keyword_match_score": {
+      "mean": 0.2857142857142857,
+      "median": 0.0,
+      "min": 0.0,
+      "max": 1.0
+    },
+    "semantic_overlap": {
+      "mean": 0.0,
+      "median": 0.0,
+      "min": 0.0,
+      "max": 0.0
+    },
+    "exact_matches": {
+      "count": 0,
+      "rate": 0.0
+    },
+    "accuracy_tiers": {
+      "high_accuracy": 0,
+      "medium_accuracy": 0,
+      "low_accuracy": 7
+    }
+  },
+  "document_breakdown": {
+    "Arogya Sanjeevani Policy - National": {
+      "total_questions": 10,
+      "successful_questions": 1,
+      "avg_latency_ms": 4692.259502410889,
+      "avg_fuzzy_similarity": 0.0,
+      "avg_keyword_match": 0.0,
+      "avg_semantic_overlap": 0.0,
+      "exact_matches": 0,
+      "success_rate": 0.1
+    },
+    "Super Splendor (Feb 2023) Manual": {
+      "total_questions": 10,
+      "successful_questions": 1,
+      "avg_latency_ms": 2923.7972021102905,
+      "avg_fuzzy_similarity": 0.0,
+      "avg_keyword_match": 0.0,
+      "avg_semantic_overlap": 0.0,
+      "exact_matches": 0,
+      "success_rate": 0.1
+    },
+    "Family Medicare Policy Wordings": {
+      "total_questions": 10,
+      "successful_questions": 1,
+      "avg_latency_ms": 3776.1573791503906,
+      "avg_fuzzy_similarity": 0.0,
+      "avg_keyword_match": 0.0,
+      "avg_semantic_overlap": 0.0,
+      "exact_matches": 0,
+      "success_rate": 0.1
+    },
+    "The Constitution of India": {
+      "total_questions": 10,
+      "successful_questions": 1,
+      "avg_latency_ms": 2539.9752140045166,
+      "avg_fuzzy_similarity": 0.0,
+      "avg_keyword_match": 0.0,
+      "avg_semantic_overlap": 0.0,
+      "exact_matches": 0,
+      "success_rate": 0.1
+    },
+    "Newton's Principia": {
+      "total_questions": 10,
+      "successful_questions": 1,
+      "avg_latency_ms": 22510.130763053894,
+      "avg_fuzzy_similarity": 0.0,
+      "avg_keyword_match": 1.0,
+      "avg_semantic_overlap": 0.0,
+      "exact_matches": 0,
+      "success_rate": 0.1
+    },
+    "Pincode and Salary Data": {
+      "total_questions": 10,
+      "successful_questions": 1,
+      "avg_latency_ms": 1783.7734699249268,
+      "avg_fuzzy_similarity": 0.0,
+      "avg_keyword_match": 1.0,
+      "avg_semantic_overlap": 0.0,
+      "exact_matches": 0,
+      "success_rate": 0.1
+    },
+    "Mediclaim Insurance Policy (Group)": {
+      "total_questions": 10,
+      "successful_questions": 1,
+      "avg_latency_ms": 5464.517712593079,
+      "avg_fuzzy_similarity": 0.0,
+      "avg_keyword_match": 0.0,
+      "avg_semantic_overlap": 0.0,
+      "exact_matches": 0,
+      "success_rate": 0.1
+    }
+  },
+  "failed_tests": [
+    {
+      "document": "Arogya Sanjeevani Policy - National",
+      "question": "What is the minimum entry age for the Arogya Sanjeevani Policy?",
+      "error": "",
+      "latency_ms": 4692.259502410889
+    },
+    {
+      "document": "Arogya Sanjeevani Policy - National",
+      "question": "What is the maximum entry age for this policy?",
+      "error": "",
+      "latency_ms": 4692.259502410889
+    },
+    {
+      "document": "Arogya Sanjeevani Policy - National",
+      "question": "How is the Cumulative Bonus calculated?",
+      "error": "",
+      "latency_ms": 4692.259502410889
+    },
+    {
+      "document": "Arogya Sanjeevani Policy - National",
+      "question": "What is the maximum Cumulative Bonus allowed?",
+      "error": "",
+      "latency_ms": 4692.259502410889
+    },
+    {
+      "document": "Arogya Sanjeevani Policy - National",
+      "question": "Is there a co-payment clause in this policy?",
+      "error": "",
+      "latency_ms": 4692.259502410889
+    },
+    {
+      "document": "Arogya Sanjeevani Policy - National",
+      "question": "Are AYUSH treatments covered under this policy?",
+      "error": "",
+      "latency_ms": 4692.259502410889
+    },
+    {
+      "document": "Arogya Sanjeevani Policy - National",
+      "question": "What is the sub-limit for cataract surgery?",
+      "error": "",
+      "latency_ms": 4692.259502410889
+    },
+    {
+      "document": "Arogya Sanjeevani Policy - National",
+      "question": "Are pre-hospitalization medical expenses covered?",
+      "error": "",
+      "latency_ms": 4692.259502410889
+    },
+    {
+      "document": "Arogya Sanjeevani Policy - National",
+      "question": "Are post-hospitalization medical expenses covered?",
+      "error": "",
+      "latency_ms": 4692.259502410889
+    },
+    {
+      "document": "Super Splendor (Feb 2023) Manual",
+      "question": "What is the fuel tank capacity?",
+      "error": "",
+      "latency_ms": 2923.7972021102905
+    },
+    {
+      "document": "Super Splendor (Feb 2023) Manual",
+      "question": "What is the usable reserve fuel capacity?",
+      "error": "",
+      "latency_ms": 2923.7972021102905
+    },
+    {
+      "document": "Super Splendor (Feb 2023) Manual",
+      "question": "What is the recommended tyre pressure for the front tyre (solo riding)?",
+      "error": "",
+      "latency_ms": 2923.7972021102905
+    },
+    {
+      "document": "Super Splendor (Feb 2023) Manual",
+      "question": "What is the recommended tyre pressure for the rear tyre (with a pillion rider)?",
+      "error": "",
+      "latency_ms": 2923.7972021102905
+    },
+    {
+      "document": "Super Splendor (Feb 2023) Manual",
+      "question": "What is the type of braking system used?",
+      "error": "",
+      "latency_ms": 2923.7972021102905
+    },
+    {
+      "document": "Super Splendor (Feb 2023) Manual",
+      "question": "What is the grade of the drive chain lubricant to be used?",
+      "error": "",
+      "latency_ms": 2923.7972021102905
+    },
+    {
+      "document": "Super Splendor (Feb 2023) Manual",
+      "question": "What is the specified maximum payload for the motorcycle?",
+      "error": "",
+      "latency_ms": 2923.7972021102905
+    },
+    {
+      "document": "Super Splendor (Feb 2023) Manual",
+      "question": "What is the battery specification?",
+      "error": "",
+      "latency_ms": 2923.7972021102905
+    },
+    {
+      "document": "Super Splendor (Feb 2023) Manual",
+      "question": "What does the \"i3S\" switch do?",
+      "error": "",
+      "latency_ms": 2923.7972021102905
+    },
+    {
+      "document": "Family Medicare Policy Wordings",
+      "question": "Is there a waiting period for pre-existing diseases?",
+      "error": "",
+      "latency_ms": 3776.1573791503906
+    },
+    {
+      "document": "Family Medicare Policy Wordings",
+      "question": "What is the initial waiting period for any illness claim (other than accidental)?",
+      "error": "",
+      "latency_ms": 3776.1573791503906
+    },
+    {
+      "document": "Family Medicare Policy Wordings",
+      "question": "What is the specific waiting period for conditions like Cataract or Hysterectomy?",
+      "error": "",
+      "latency_ms": 3776.1573791503906
+    },
+    {
+      "document": "Family Medicare Policy Wordings",
+      "question": "What is the maximum liability for road ambulance charges?",
+      "error": "",
+      "latency_ms": 3776.1573791503906
+    },
+    {
+      "document": "Family Medicare Policy Wordings",
+      "question": "How is the Cumulative Bonus affected by a claim?",
+      "error": "",
+      "latency_ms": 3776.1573791503906
+    },
+    {
+      "document": "Family Medicare Policy Wordings",
+      "question": "What is the maximum number of members that can be covered under a single floater policy?",
+      "error": "",
+      "latency_ms": 3776.1573791503906
+    },
+    {
+      "document": "Family Medicare Policy Wordings",
+      "question": "Are domiciliary hospitalization expenses covered?",
+      "error": "",
+      "latency_ms": 3776.1573791503906
+    },
+    {
+      "document": "Family Medicare Policy Wordings",
+      "question": "What is the age limit for dependent children to be covered?",
+      "error": "",
+      "latency_ms": 3776.1573791503906
+    },
+    {
+      "document": "Family Medicare Policy Wordings",
+      "question": "Are expenses related to dental treatment covered?",
+      "error": "",
+      "latency_ms": 3776.1573791503906
+    },
+    {
+      "document": "The Constitution of India",
+      "question": "Which part of the Constitution deals with Fundamental Rights?",
+      "error": "",
+      "latency_ms": 2539.9752140045166
+    },
+    {
+      "document": "The Constitution of India",
+      "question": "What does Article 21 of the Constitution state?",
+      "error": "",
+      "latency_ms": 2539.9752140045166
+    },
+    {
+      "document": "The Constitution of India",
+      "question": "Which article abolishes \"Untouchability\"?",
+      "error": "",
+      "latency_ms": 2539.9752140045166
+    },
+    {
+      "document": "The Constitution of India",
+      "question": "What is the subject matter of Article 19?",
+      "error": "",
+      "latency_ms": 2539.9752140045166
+    },
+    {
+      "document": "The Constitution of India",
+      "question": "Which part of the Constitution contains the Directive Principles of State Policy?",
+      "error": "",
+      "latency_ms": 2539.9752140045166
+    },
+    {
+      "document": "The Constitution of India",
+      "question": "Are the Directive Principles of State Policy enforceable by any court?",
+      "error": "",
+      "latency_ms": 2539.9752140045166
+    },
+    {
+      "document": "The Constitution of India",
+      "question": "What does Article 40 of the Constitution direct the State to do?",
+      "error": "",
+      "latency_ms": 2539.9752140045166
+    },
+    {
+      "document": "The Constitution of India",
+      "question": "Under which article can a citizen move the Supreme Court for the enforcement of Fundamental Rights?",
+      "error": "",
+      "latency_ms": 2539.9752140045166
+    },
+    {
+      "document": "The Constitution of India",
+      "question": "What does Article 51A(g) state as a fundamental duty?",
+      "error": "",
+      "latency_ms": 2539.9752140045166
+    },
+    {
+      "document": "Newton's Principia",
+      "question": "How is the alteration of motion related to the motive force impressed, according to the second Law of Motion?",
+      "error": "",
+      "latency_ms": 22510.130763053894
+    },
+    {
+      "document": "Newton's Principia",
+      "question": "What is the third Law of Motion?",
+      "error": "",
+      "latency_ms": 22510.130763053894
+    },
+    {
+      "document": "Newton's Principia",
+      "question": "What is Definition I in the Principia?",
+      "error": "",
+      "latency_ms": 22510.130763053894
+    },
+    {
+      "document": "Newton's Principia",
+      "question": "How is the quantity of motion defined?",
+      "error": "",
+      "latency_ms": 22510.130763053894
+    },
+    {
+      "document": "Newton's Principia",
+      "question": "What is the \"vis insita,\" or innate force of matter?",
+      "error": "",
+      "latency_ms": 22510.130763053894
+    },
+    {
+      "document": "Newton's Principia",
+      "question": "What is an impressed force?",
+      "error": "",
+      "latency_ms": 22510.130763053894
+    },
+    {
+      "document": "Newton's Principia",
+      "question": "According to Newton, how do the actions of two bodies upon each other relate?",
+      "error": "",
+      "latency_ms": 22510.130763053894
+    },
+    {
+      "document": "Newton's Principia",
+      "question": "If a horse draws a stone tied to a rope, how does the stone affect the horse?",
+      "error": "",
+      "latency_ms": 22510.130763053894
+    },
+    {
+      "document": "Newton's Principia",
+      "question": "What is the subject of the first book of the Principia?",
+      "error": "",
+      "latency_ms": 22510.130763053894
+    },
+    {
+      "document": "Pincode and Salary Data",
+      "question": "Who has a salary of 60,000?",
+      "error": "",
+      "latency_ms": 1783.7734699249268
+    },
+    {
+      "document": "Pincode and Salary Data",
+      "question": "What is the pincode for Ananya Reddy's location?",
+      "error": "",
+      "latency_ms": 1783.7734699249268
+    },
+    {
+      "document": "Pincode and Salary Data",
+      "question": "Which employee is associated with the pincode 400001?",
+      "error": "",
+      "latency_ms": 1783.7734699249268
+    },
+    {
+      "document": "Pincode and Salary Data",
+      "question": "What is Aarav Sharma's salary?",
+      "error": "",
+      "latency_ms": 1783.7734699249268
+    },
+    {
+      "document": "Pincode and Salary Data",
+      "question": "What is the pincode for the employee named Meera Krishnan?",
+      "error": "",
+      "latency_ms": 1783.7734699249268
+    },
+    {
+      "document": "Pincode and Salary Data",
+      "question": "Who has the highest salary listed in the document?",
+      "error": "",
+      "latency_ms": 1783.7734699249268
+    },
+    {
+      "document": "Pincode and Salary Data",
+      "question": "What is the pincode for New Delhi in this dataset?",
+      "error": "",
+      "latency_ms": 1783.7734699249268
+    },
+    {
+      "document": "Pincode and Salary Data",
+      "question": "What is the salary of the employee located at pincode 700001?",
+      "error": "",
+      "latency_ms": 1783.7734699249268
+    },
+    {
+      "document": "Pincode and Salary Data",
+      "question": "What is the full name of the employee with the last name Singh?",
+      "error": "",
+      "latency_ms": 1783.7734699249268
+    },
+    {
+      "document": "Mediclaim Insurance Policy (Group)",
+      "question": "What is the maximum amount payable for Ambulance Charges per person per policy period?",
+      "error": "",
+      "latency_ms": 5464.517712593079
+    },
+    {
+      "document": "Mediclaim Insurance Policy (Group)",
+      "question": "Is treatment for correction of eyesight due to refractive error covered?",
+      "error": "",
+      "latency_ms": 5464.517712593079
+    },
+    {
+      "document": "Mediclaim Insurance Policy (Group)",
+      "question": "Are expenses for vitamins and tonics covered?",
+      "error": "",
+      "latency_ms": 5464.517712593079
+    },
+    {
+      "document": "Mediclaim Insurance Policy (Group)",
+      "question": "What is the time limit for submitting a claim to the TPA or Company?",
+      "error": "",
+      "latency_ms": 5464.517712593079
+    },
+    {
+      "document": "Mediclaim Insurance Policy (Group)",
+      "question": "Is convalescence, general debility, or rest cure covered?",
+      "error": "",
+      "latency_ms": 5464.517712593079
+    },
+    {
+      "document": "Mediclaim Insurance Policy (Group)",
+      "question": "What is the definition of \"Hospital\" in this policy?",
+      "error": "",
+      "latency_ms": 5464.517712593079
+    },
+    {
+      "document": "Mediclaim Insurance Policy (Group)",
+      "question": "Are expenses for cosmetic or aesthetic treatments covered?",
+      "error": "",
+      "latency_ms": 5464.517712593079
+    },
+    {
+      "document": "Mediclaim Insurance Policy (Group)",
+      "question": "What is the cover for a newborn child under the Maternity benefit?",
+      "error": "",
+      "latency_ms": 5464.517712593079
+    },
+    {
+      "document": "Mediclaim Insurance Policy (Group)",
+      "question": "Is intentional self-injury covered by the policy?",
+      "error": "",
+      "latency_ms": 5464.517712593079
+    }
+  ]
+}

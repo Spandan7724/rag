@@ -14,6 +14,8 @@ from app.models.requests import (
 from app.services.rag_coordinator import get_rag_coordinator
 from app.services.file_manager import get_file_manager
 from app.services.question_logger import get_question_logger
+from app.services.challenge_solver import get_challenge_solver, solve_hackrx_challenge
+from app.services.web_client import WebClient, fetch_web_content
 from app.core.security import verify_token
 from app.core.config import settings
 from app.core.directories import get_directory_manager
@@ -824,3 +826,5 @@ async def cleanup_question_logs(token: str = Depends(verify_token)):
             status_code=500,
             detail=f"Question log cleanup failed: {str(e)}"
         )
+
+

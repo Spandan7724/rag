@@ -160,8 +160,8 @@ class EnhancedAnswerGenerator:
         print(f"DEBUG: _prepare_sources returning {len(sources)} sources")
         return sources
 
-    def _create_rag_prompt(self, question: str, context_str: str) -> str:
-        """Create enhanced RAG prompt with improved accuracy instructions"""
+    def _create_rag_prompt(self, question: str, context_str: str, is_multilingual: bool = False, detected_language: str = None) -> str:
+        """Create enhanced RAG prompt with improved accuracy instructions and multilingual support"""
         
         # Classify question type for specialized instructions
         question_lower = question.lower()
@@ -180,15 +180,23 @@ class EnhancedAnswerGenerator:
         elif any(term in question_lower for term in ['eligible', 'eligibility', 'qualify', 'criteria']):
             specialized_instructions = "\n- ELIGIBILITY CRITERIA EXTRACTION: Quote complete eligibility requirements, qualifying conditions, and all associated criteria exactly as specified in the context."
         
-        system_message = f"""You are a precise insurance policy expert. Answer ONLY based on the provided context.
+        # Multilingual support
+        multilingual_instructions = ""
+        if is_multilingual:
+            if detected_language == "malayalam":
+                multilingual_instructions = "\n\nMULTILINGUAL PROCESSING (Malayalam):\n- The context contains Malayalam text (മലയാളം). Process and understand Malayalam content carefully.\n- For Malayalam terms like ട്രംപ് (Trump), ശുല്ക്കം (tariff/tax), യുഎസ് (US), etc., provide accurate context.\n- If the question is in English but context is Malayalam, translate key findings to English.\n- Preserve original Malayalam terms in parentheses when translating for accuracy.\n- Pay special attention to dates, numbers, and policy details in Malayalam text."
+            else:
+                multilingual_instructions = f"\n\nMULTILINGUAL PROCESSING ({detected_language or 'Unknown'}):\n- The context contains non-English content. Process multilingual text carefully.\n- Translate key information to English if the question is in English.\n- Preserve original terms in parentheses when translating for accuracy.\n- Pay attention to cultural and linguistic nuances in the content."
+        
+        system_message = f"""You are a precise document analysis expert. Answer ONLY based on the provided context.
 
 CRITICAL RULES:
 1. Extract information EXACTLY as written in the context - no paraphrasing
 2. For numbers/percentages: Use exact values from context
-3. For definitions: Use precise wording from policy document
+3. For definitions: Use precise wording from source document
 4. If information is missing: Reply exactly "Not available in document"
 5. Provide comprehensive, detailed answers using all relevant information from context
-6. Structure your response clearly with specific details, conditions, and procedures{specialized_instructions}
+6. Structure your response clearly with specific details, conditions, and procedures{specialized_instructions}{multilingual_instructions}
 
 EXAMPLE:
 Q: What is the grace period for premium payment?
@@ -404,7 +412,9 @@ ANSWER:"""
         self, 
         question: str, 
         search_results: List[SearchResult],
-        max_context_length: int = None
+        max_context_length: int = None,
+        multilingual_mode: bool = False,
+        detected_language: str = None
     ) -> GeneratedAnswer:
         """
         Generate answer using the configured LLM provider
@@ -511,11 +521,11 @@ ANSWER:"""
         print(f"Context length: {len(context_str)} characters")
         
         try:
-            # Generate answer using the configured provider
+            # Generate answer using the configured provider with multilingual support
             if self.provider_type == "copilot":
-                answer = self._generate_with_copilot_sync(question, context_str)
+                answer = self._generate_with_copilot_sync(question, context_str, multilingual_mode, detected_language)
             else:  # gemini
-                answer = self._generate_with_gemini_sync(question, context_str)
+                answer = self._generate_with_gemini_sync(question, context_str, multilingual_mode, detected_language)
             
             # Simple post-processing - no retry/expansion complexity
             answer = answer.strip()
@@ -554,19 +564,24 @@ ANSWER:"""
                 model_info={"provider": self.provider_type, "model": self.model_name, "method": "error_handling", "error": str(e)}
             )
 
-    def _generate_with_copilot_sync(self, question: str, context_str: str) -> str:
-        """Generate answer using Copilot provider (synchronous wrapper)"""
+    def _generate_with_copilot_sync(self, question: str, context_str: str, multilingual_mode: bool = False, detected_language: str = None) -> str:
+        """Generate answer using Copilot provider with multilingual support (synchronous wrapper)"""
         import asyncio
         
         async def _async_generate():
-            prompt = self._create_rag_prompt(question, context_str)
+            prompt = self._create_rag_prompt(question, context_str, multilingual_mode, detected_language)
+            
+            # Adjust temperature for multilingual content (slightly higher for better handling)
+            temperature = self.temperature
+            if multilingual_mode:
+                temperature = min(self.temperature + 0.1, 1.0)
             
             # Simple single attempt - no retry complexity
             self.provider.kwargs.update({"max_tokens": self.max_tokens})
             
             response = await self.provider.generate_answer(
                 prompt=prompt,
-                temperature=self.temperature
+                temperature=temperature
             )
             
             if response.error:
@@ -589,14 +604,19 @@ ANSWER:"""
             # No event loop running, create new one
             return asyncio.run(_async_generate())
 
-    def _generate_with_gemini_sync(self, question: str, context_str: str) -> str:
-        """Generate answer using Gemini provider (synchronous)"""
-        prompt = self._create_rag_prompt(question, context_str)
+    def _generate_with_gemini_sync(self, question: str, context_str: str, multilingual_mode: bool = False, detected_language: str = None) -> str:
+        """Generate answer using Gemini provider with multilingual support (synchronous)"""
+        prompt = self._create_rag_prompt(question, context_str, multilingual_mode, detected_language)
         
-        # Generation config for comprehensive answers
+        # Adjust temperature for multilingual content
+        temperature = self.temperature
+        if multilingual_mode:
+            temperature = min(self.temperature + 0.1, 1.0)
+        
+        # Generation config for comprehensive answers with multilingual support
         generation_config = {
             "max_output_tokens": self.max_tokens,
-            "temperature": self.temperature  # Use configured temperature
+            "temperature": temperature
         }
         
         # Generate response

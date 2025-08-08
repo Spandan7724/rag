@@ -14,6 +14,9 @@ from app.services.vector_store import get_vector_store, SearchResult
 from app.services.enhanced_answer_generator import get_enhanced_answer_generator as get_answer_generator
 from app.services.cache_manager import get_cache_manager
 from app.services.query_transformer import get_query_transformer, QueryTransformationResult
+from app.services.challenge_detector import get_challenge_detector, ChallengeType
+from app.services.challenge_solver import get_challenge_solver
+from app.services.web_client import WebClient
 from app.core.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -23,13 +26,15 @@ settings = Settings()
 
 @dataclass
 class RAGResponse:
-    """Complete RAG response with query transformation support"""
+    """Complete RAG response with intelligent challenge detection"""
     answer: str
     processing_time: float
     doc_id: str
     sources_used: List[Dict[str, Any]]
     pipeline_stats: Dict[str, Any]
     query_transformation: Optional[Dict[str, Any]] = None  # Information about query transformation
+    challenge_detection: Optional[Dict[str, Any]] = None  # Information about detected challenge type
+    special_processing: Optional[Dict[str, Any]] = None   # Information about special processing used
 
 
 class RAGCoordinator:
@@ -44,6 +49,10 @@ class RAGCoordinator:
         self.answer_generator = get_answer_generator()
         self.cache_manager = get_cache_manager()
         self.query_transformer = get_query_transformer()
+        self.challenge_detector = get_challenge_detector()
+        
+        # Initialize challenge solver (lazy loaded when needed)
+        self._challenge_solver = None
         
         # Single embedding manager based on config
         
@@ -255,7 +264,7 @@ class RAGCoordinator:
         enable_transformation: Optional[bool] = None  # Keep for compatibility but ignore
     ) -> RAGResponse:
         """
-        Simplified question answering - no query transformation complexity
+        Intelligent question answering with automatic challenge detection
         
         Args:
             question: Question to answer
@@ -265,7 +274,7 @@ class RAGCoordinator:
             enable_transformation: Ignored - no transformation used
             
         Returns:
-            RAGResponse with answer and metadata
+            RAGResponse with answer and metadata including challenge detection
         """
         start_time = time.time()
         
@@ -274,6 +283,67 @@ class RAGCoordinator:
             print(f"Filtering by document: {doc_id}")
         
         try:
+            # Step 1: Get document content for context (if doc_id specified)
+            document_content = ""
+            if doc_id:
+                # Extract document content from vector store for challenge detection
+                doc_chunks = []
+                for i in range(len(self.vector_store.chunk_texts)):
+                    metadata = self.vector_store.chunk_metadata[i]
+                    if metadata.doc_id == doc_id:
+                        doc_chunks.append(self.vector_store.chunk_texts[i])
+                document_content = " ".join(doc_chunks[:5])  # First 5 chunks for context
+            
+            # Step 2: Detect challenge type
+            detections = self.challenge_detector.detect_challenge_type([question], document_content)
+            primary_challenge = self.challenge_detector.get_primary_challenge(detections)
+            
+            print(f"🔍 Challenge detected: {primary_challenge.challenge_type.value} (confidence: {primary_challenge.confidence:.2f})")
+            print(f"💡 Suggested approach: {primary_challenge.suggested_approach}")
+            
+            challenge_info = {
+                "type": primary_challenge.challenge_type.value,
+                "confidence": primary_challenge.confidence,
+                "patterns": primary_challenge.detected_patterns,
+                "approach": primary_challenge.suggested_approach,
+                "metadata": primary_challenge.metadata
+            }
+            
+            # Step 3: Route to appropriate handler based on challenge type
+            special_processing = None
+            
+            if primary_challenge.challenge_type == ChallengeType.GEOGRAPHIC_PUZZLE and primary_challenge.confidence > 0.6:
+                # Use geographic challenge solver
+                return await self._handle_geographic_challenge(question, doc_id, start_time, challenge_info)
+            
+            elif primary_challenge.challenge_type == ChallengeType.FLIGHT_NUMBER and primary_challenge.confidence > 0.8:
+                # Try to extract flight number or trigger geographic solver
+                return await self._handle_flight_request(question, doc_id, start_time, challenge_info)
+            
+            elif primary_challenge.challenge_type == ChallengeType.SECRET_TOKEN and primary_challenge.confidence > 0.7:
+                # Use web client to get token
+                return await self._handle_token_request(question, doc_id, start_time, challenge_info)
+            
+            elif primary_challenge.challenge_type == ChallengeType.WEB_SCRAPING and primary_challenge.confidence > 0.6:
+                # Use web scraping
+                return await self._handle_web_scraping(question, doc_id, start_time, challenge_info)
+            
+            elif primary_challenge.challenge_type == ChallengeType.MULTILINGUAL_QA and primary_challenge.confidence > 0.5:
+                # Enhanced multilingual processing
+                detected_lang = primary_challenge.metadata.get("language_detected", "unknown")
+                special_processing = {
+                    "multilingual_mode": True,
+                    "detected_language": detected_lang,
+                    "language_processing": True
+                }
+                print(f"🌍 Using enhanced multilingual processing for {detected_lang} content")
+            
+            elif primary_challenge.challenge_type == ChallengeType.COMPLEX_REASONING and primary_challenge.confidence > 0.5:
+                # Enhanced reasoning with more context
+                k_retrieve = min(k_retrieve * 2, 50)  # Increase context for complex reasoning
+                special_processing = {"complex_reasoning_mode": True}
+            
+            # Step 4: Use standard RAG pipeline with any special processing
             # SIMPLIFIED: Use original question directly - no transformation
             queries_to_process = [question]
             
@@ -322,23 +392,33 @@ class RAGCoordinator:
                         "answer_generation_time": 0,
                         "total_time": total_time
                     },
-                    query_transformation=query_transformation_result
+                    query_transformation=query_transformation_result,
+                    challenge_detection=challenge_info,
+                    special_processing=special_processing
                 )
             
             # Simple debug output
             print("Top search results (L2 distance - lower = more similar):")
             for i, result in enumerate(deduplicated_results[:3]):
-                print(f"  {i+1}. Distance: {result.similarity_score:.4f}")
+                # Convert L2 distance to cosine similarity for normalized embeddings: cos_sim = 1 - (L2²/2)
+                cosine_sim = 1 - (result.similarity_score ** 2) / 2
+                print(f"  {i+1}. Distance: {result.similarity_score:.4f} (≈{cosine_sim:.1%} similar)")
             
             # SIMPLIFIED Stage 3: Generate answer
             stage_start = time.time()
             # Use config default if not specified
             context_length = max_context_length if max_context_length is not None else settings.max_context_tokens
             
+            # Pass multilingual info to answer generator if available
+            multilingual_mode = special_processing and special_processing.get("multilingual_mode", False)
+            detected_language = special_processing and special_processing.get("detected_language")
+            
             answer_result = self.answer_generator.generate_answer(
                 question=question,
                 search_results=deduplicated_results,
-                max_context_length=context_length
+                max_context_length=context_length,
+                multilingual_mode=multilingual_mode,
+                detected_language=detected_language
             )
             answer_generation_time = time.time() - stage_start
             
@@ -368,7 +448,9 @@ class RAGCoordinator:
                 doc_id=doc_id or deduplicated_results[0].metadata.doc_id if deduplicated_results else "none",
                 sources_used=answer_result.sources,
                 pipeline_stats=pipeline_stats,
-                query_transformation=query_transformation_result
+                query_transformation=query_transformation_result,
+                challenge_detection=challenge_info,
+                special_processing=special_processing
             )
             
             # No caching - keep it simple
@@ -378,6 +460,314 @@ class RAGCoordinator:
         except Exception as e:
             print(f"Enhanced question answering failed: {str(e)}")
             raise
+    
+    async def _handle_geographic_challenge(self, question: str, doc_id: str, start_time: float, challenge_info: Dict[str, Any]) -> RAGResponse:
+        """Handle geographic puzzle challenge with multi-step solving"""
+        print("🌍 Handling geographic puzzle challenge...")
+        
+        try:
+            # Get challenge solver instance
+            if self._challenge_solver is None:
+                from app.services.challenge_solver import get_challenge_solver
+                self._challenge_solver = await get_challenge_solver()
+            
+            # Solve the geographic challenge
+            challenge_result = await self._challenge_solver.solve_geographic_challenge(doc_id)
+            
+            # Extract the answer
+            if challenge_result.flight_number:
+                answer = f"Flight Number: {challenge_result.flight_number}"
+            else:
+                # If challenge failed, provide detailed error info
+                failed_steps = [step for step in challenge_result.steps_completed if not step.success]
+                if failed_steps:
+                    last_error = failed_steps[-1].error
+                    answer = f"Geographic challenge failed at step {failed_steps[-1].step.value}: {last_error}"
+                else:
+                    answer = "Geographic challenge completed but no flight number was obtained."
+            
+            # Create sources from challenge steps
+            sources_used = []
+            for step in challenge_result.steps_completed:
+                if step.success and step.data:
+                    sources_used.append({
+                        "step": step.step.value,
+                        "data": step.data,
+                        "processing_time": step.processing_time
+                    })
+            
+            total_time = time.time() - start_time
+            
+            # Create special processing metadata
+            special_processing = {
+                "challenge_type": "geographic_puzzle",
+                "multi_step_process": True,
+                "steps_completed": len(challenge_result.steps_completed),
+                "successful_steps": len([s for s in challenge_result.steps_completed if s.success]),
+                "challenge_processing_time": challenge_result.total_processing_time,
+                "final_result": {
+                    "city": challenge_result.city,
+                    "landmark": challenge_result.landmark.landmark if challenge_result.landmark else None,
+                    "flight_number": challenge_result.flight_number,
+                    "has_token": challenge_result.secret_token is not None
+                }
+            }
+            
+            return RAGResponse(
+                answer=answer,
+                processing_time=total_time,
+                doc_id=doc_id,
+                sources_used=sources_used,
+                pipeline_stats={
+                    "challenge_solving_time": challenge_result.total_processing_time,
+                    "total_time": total_time,
+                    "steps_completed": len(challenge_result.steps_completed),
+                    "model_info": {"challenge_solver": "geographic_puzzle"}
+                },
+                challenge_detection=challenge_info,
+                special_processing=special_processing
+            )
+            
+        except Exception as e:
+            print(f"Geographic challenge handling failed: {e}")
+            # Fallback to standard RAG
+            return await self._fallback_to_standard_rag(question, doc_id, start_time, challenge_info, f"Geographic challenge failed: {e}")
+    
+    async def _handle_flight_request(self, question: str, doc_id: str, start_time: float, challenge_info: Dict[str, Any]) -> RAGResponse:
+        """Handle direct flight number requests"""
+        print("✈️ Handling flight number request...")
+        
+        try:
+            # First try to extract flight number directly from document using RAG
+            rag_response = await self._standard_rag_query(question, doc_id, k_retrieve=15)
+            
+            # Check if the answer contains a flight number pattern
+            import re
+            flight_pattern = r'[A-Z]{2,3}[0-9]{2,4}|[0-9]{3,4}'
+            flight_matches = re.findall(flight_pattern, rag_response.answer)
+            
+            if flight_matches:
+                # Found flight number in document
+                answer = f"Flight Number: {flight_matches[0]}"
+                special_processing = {
+                    "approach": "direct_extraction",
+                    "flight_patterns_found": flight_matches
+                }
+            else:
+                # No flight number found, trigger geographic challenge
+                print("No flight number found directly, triggering geographic challenge...")
+                return await self._handle_geographic_challenge(question, doc_id, start_time, challenge_info)
+            
+            total_time = time.time() - start_time
+            
+            return RAGResponse(
+                answer=answer,
+                processing_time=total_time,
+                doc_id=doc_id,
+                sources_used=rag_response.sources_used,
+                pipeline_stats={
+                    **rag_response.pipeline_stats,
+                    "flight_extraction": True
+                },
+                challenge_detection=challenge_info,
+                special_processing=special_processing
+            )
+            
+        except Exception as e:
+            print(f"Flight request handling failed: {e}")
+            return await self._fallback_to_standard_rag(question, doc_id, start_time, challenge_info, f"Flight request failed: {e}")
+    
+    async def _handle_token_request(self, question: str, doc_id: str, start_time: float, challenge_info: Dict[str, Any]) -> RAGResponse:
+        """Handle secret token requests using web client"""
+        print("🔐 Handling secret token request...")
+        
+        try:
+            from app.services.web_client import WebClient
+            
+            async with WebClient() as client:
+                token = await client.hackrx_get_secret_token()
+                
+                if token:
+                    answer = f"Secret Token: {token}"
+                    special_processing = {
+                        "approach": "web_api_call",
+                        "token_obtained": True,
+                        "token_length": len(token)
+                    }
+                else:
+                    answer = "Failed to retrieve secret token from API endpoint."
+                    special_processing = {
+                        "approach": "web_api_call", 
+                        "token_obtained": False
+                    }
+            
+            total_time = time.time() - start_time
+            
+            return RAGResponse(
+                answer=answer,
+                processing_time=total_time,
+                doc_id=doc_id,
+                sources_used=[{
+                    "source": "hackrx_api_endpoint",
+                    "method": "web_scraping",
+                    "success": token is not None
+                }],
+                pipeline_stats={
+                    "web_scraping_time": total_time - (time.time() - start_time),
+                    "total_time": total_time,
+                    "model_info": {"web_client": "hackrx_token_api"}
+                },
+                challenge_detection=challenge_info,
+                special_processing=special_processing
+            )
+            
+        except Exception as e:
+            print(f"Token request handling failed: {e}")
+            return await self._fallback_to_standard_rag(question, doc_id, start_time, challenge_info, f"Token request failed: {e}")
+    
+    async def _handle_web_scraping(self, question: str, doc_id: str, start_time: float, challenge_info: Dict[str, Any]) -> RAGResponse:
+        """Handle web scraping requests"""
+        print("🌐 Handling web scraping request...")
+        
+        try:
+            from app.services.web_client import WebClient
+            import re
+            
+            # Extract URL from question if present
+            url_pattern = r'https?://[^\s]+'
+            urls = re.findall(url_pattern, question)
+            
+            if urls:
+                async with WebClient() as client:
+                    url = urls[0]
+                    response = await client.fetch_url(url)
+                    
+                    if response.status_code == 200:
+                        # Extract relevant content based on question
+                        if "token" in question.lower():
+                            # Look for token-like patterns
+                            token_pattern = r'[A-Za-z0-9]{20,}'
+                            tokens = re.findall(token_pattern, response.content[:1000])
+                            if tokens:
+                                answer = f"Found token: {tokens[0]}"
+                            else:
+                                answer = "No token pattern found in the webpage."
+                        else:
+                            # General content extraction
+                            content = response.content[:500] + "..." if len(response.content) > 500 else response.content
+                            answer = f"Web content from {url}:\n{content}"
+                        
+                        special_processing = {
+                            "approach": "web_scraping",
+                            "url_scraped": url,
+                            "content_length": len(response.content),
+                            "status_code": response.status_code
+                        }
+                    else:
+                        answer = f"Failed to access {url}. Status: {response.status_code}"
+                        special_processing = {
+                            "approach": "web_scraping",
+                            "url_attempted": url,
+                            "error": f"HTTP {response.status_code}"
+                        }
+            else:
+                # No URL found, fallback to standard RAG
+                return await self._fallback_to_standard_rag(question, doc_id, start_time, challenge_info, "No URL found for scraping")
+            
+            total_time = time.time() - start_time
+            
+            return RAGResponse(
+                answer=answer,
+                processing_time=total_time,
+                doc_id=doc_id,
+                sources_used=[{
+                    "source": urls[0] if urls else "unknown",
+                    "method": "web_scraping",
+                    "status": response.status_code if 'response' in locals() else "failed"
+                }],
+                pipeline_stats={
+                    "web_scraping_time": total_time,
+                    "total_time": total_time,
+                    "model_info": {"web_client": "general_scraping"}
+                },
+                challenge_detection=challenge_info,
+                special_processing=special_processing
+            )
+            
+        except Exception as e:
+            print(f"Web scraping handling failed: {e}")
+            return await self._fallback_to_standard_rag(question, doc_id, start_time, challenge_info, f"Web scraping failed: {e}")
+    
+    async def _standard_rag_query(self, question: str, doc_id: str, k_retrieve: int = 10) -> RAGResponse:
+        """Execute standard RAG query without challenge detection"""
+        # Simple single query processing
+        query_embedding = await self.embedding_manager.encode_query(question)
+        
+        search_results = self.vector_store.search(
+            query_embedding=query_embedding,
+            k=k_retrieve,
+            doc_id_filter=doc_id
+        )
+        
+        if not search_results:
+            return RAGResponse(
+                answer="No relevant information found.",
+                processing_time=0.0,
+                doc_id=doc_id,
+                sources_used=[],
+                pipeline_stats={"chunks_retrieved": 0}
+            )
+        
+        # Generate answer
+        answer_result = self.answer_generator.generate_answer(
+            question=question,
+            search_results=search_results,
+            max_context_length=settings.max_context_tokens
+        )
+        
+        return RAGResponse(
+            answer=answer_result.answer,
+            processing_time=0.0,  # Will be set by caller
+            doc_id=doc_id,
+            sources_used=answer_result.sources,
+            pipeline_stats={
+                "chunks_retrieved": len(search_results),
+                "context_chunks_used": len(answer_result.context_used),
+                "model_info": answer_result.model_info
+            }
+        )
+    
+    async def _fallback_to_standard_rag(self, question: str, doc_id: str, start_time: float, challenge_info: Dict[str, Any], error_msg: str) -> RAGResponse:
+        """Fallback to standard RAG when challenge handling fails"""
+        print(f"Falling back to standard RAG: {error_msg}")
+        
+        try:
+            rag_response = await self._standard_rag_query(question, doc_id)
+            total_time = time.time() - start_time
+            
+            # Update response with timing and challenge info
+            rag_response.processing_time = total_time
+            rag_response.challenge_detection = challenge_info
+            rag_response.special_processing = {
+                "fallback_used": True,
+                "original_error": error_msg,
+                "approach": "standard_rag"
+            }
+            
+            return rag_response
+            
+        except Exception as fallback_error:
+            total_time = time.time() - start_time
+            
+            return RAGResponse(
+                answer=f"Processing failed: {error_msg}. Fallback also failed: {fallback_error}",
+                processing_time=total_time,
+                doc_id=doc_id,
+                sources_used=[],
+                pipeline_stats={"total_time": total_time},
+                challenge_detection=challenge_info,
+                special_processing={"fallback_failed": True, "errors": [error_msg, str(fallback_error)]}
+            )
     
     async def answer_question_async(
         self, 

@@ -86,7 +86,8 @@ class Settings(BaseSettings):
     adaptive_k: bool = False  # Disable adaptive k - use fixed values for simplicity
     min_k_retrieve: int = 20  # Minimum chunks to retrieve
     max_k_retrieve: int = 40  # Reduced for faster processing
-    similarity_threshold: float = 1.5  # Maximum L2 distance to include chunks (lower = more similar)
+    similarity_threshold: float = 1.2  # Maximum L2 distance to include chunks (lower = more similar)
+    # For normalized embeddings: L2=0.0 (identical), L2=0.7 (~85% similar), L2=1.0 (~75% similar), L2=1.4 (~50% similar)
     top_k_reranked: int = 7  # Slightly reduced for faster reranking
     enable_boost_rules: bool = False  # Disable boost rules - too complex and brittle
     

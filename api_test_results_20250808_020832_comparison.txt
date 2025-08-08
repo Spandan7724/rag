@@ -1,0 +1,913 @@
+API Endpoint Test - Detailed Answer Comparison
+================================================================================
+
+Test 1: Arogya Sanjeevani Policy - National
+Question: What is the grace period for renewing the Arogya Sanjeevani Policy?
+Success: True | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+A grace period of 30 days is available for policy renewal.
+
+API ANSWER:
+
+
+================================================================================
+
+Test 2: Arogya Sanjeevani Policy - National
+Question: What is the minimum entry age for the Arogya Sanjeevani Policy?
+Success: False | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The minimum entry age is 3 months.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 3: Arogya Sanjeevani Policy - National
+Question: What is the maximum entry age for this policy?
+Success: False | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The maximum entry age is 65 years.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 4: Arogya Sanjeevani Policy - National
+Question: How is the Cumulative Bonus calculated?
+Success: False | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The Cumulative Bonus is calculated at 5% of the Sum Insured for each claim-free policy year.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 5: Arogya Sanjeevani Policy - National
+Question: What is the maximum Cumulative Bonus allowed?
+Success: False | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The maximum Cumulative Bonus is 50% of the Sum Insured.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 6: Arogya Sanjeevani Policy - National
+Question: Is there a co-payment clause in this policy?
+Success: False | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Yes, there is a co-payment of 5% on all claims.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 7: Arogya Sanjeevani Policy - National
+Question: Are AYUSH treatments covered under this policy?
+Success: False | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Yes, expenses for in-patient care treatment under Ayurveda, Yoga and Naturopathy, Unani, Siddha, and Homeopathy (AYUSH) systems of medicines are covered.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 8: Arogya Sanjeevani Policy - National
+Question: What is the sub-limit for cataract surgery?
+Success: False | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Expenses for cataract treatment are limited to 25% of the Sum Insured, up to a maximum of ₹40,000 per eye.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 9: Arogya Sanjeevani Policy - National
+Question: Are pre-hospitalization medical expenses covered?
+Success: False | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Yes, medical expenses incurred for up to 30 days immediately before the date of hospitalization are covered.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 10: Arogya Sanjeevani Policy - National
+Question: Are post-hospitalization medical expenses covered?
+Success: False | Latency: 4692ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Yes, medical expenses incurred for up to 60 days immediately after the date of discharge from the hospital are covered.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 11: Super Splendor (Feb 2023) Manual
+Question: What is the recommended engine oil for the Super Splendor?
+Success: True | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The recommended engine oil is SAE 10W-30 SJ grade (JASO MA).
+
+API ANSWER:
+
+
+================================================================================
+
+Test 12: Super Splendor (Feb 2023) Manual
+Question: What is the fuel tank capacity?
+Success: False | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The fuel tank capacity is 12 litres.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 13: Super Splendor (Feb 2023) Manual
+Question: What is the usable reserve fuel capacity?
+Success: False | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The usable reserve fuel capacity is 1.3 litres.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 14: Super Splendor (Feb 2023) Manual
+Question: What is the recommended tyre pressure for the front tyre (solo riding)?
+Success: False | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The recommended front tyre pressure for solo riding is 25 psi (1.75 kgf/cm²).
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 15: Super Splendor (Feb 2023) Manual
+Question: What is the recommended tyre pressure for the rear tyre (with a pillion rider)?
+Success: False | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The recommended rear tyre pressure with a pillion rider is 41 psi (2.90 kgf/cm²).
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 16: Super Splendor (Feb 2023) Manual
+Question: What is the type of braking system used?
+Success: False | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The motorcycle is equipped with a Combi Brake System (CBS).
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 17: Super Splendor (Feb 2023) Manual
+Question: What is the grade of the drive chain lubricant to be used?
+Success: False | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The recommended drive chain lubricant is a Drive Chain Lubricant/Cleaner.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 18: Super Splendor (Feb 2023) Manual
+Question: What is the specified maximum payload for the motorcycle?
+Success: False | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The maximum payload is 130 kg.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 19: Super Splendor (Feb 2023) Manual
+Question: What is the battery specification?
+Success: False | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The battery is a 12V - 3 Ah, ETZ-4 (MF Battery).
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 20: Super Splendor (Feb 2023) Manual
+Question: What does the "i3S" switch do?
+Success: False | Latency: 2924ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The i3S (Idle Stop-Start System) switch is used to switch the i3S system ON or OFF. When ON, it automatically stops the engine when it is idling in neutral to save fuel.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 21: Family Medicare Policy Wordings
+Question: What is the freelook period for this policy?
+Success: True | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The freelook period is 15 days from the date of receipt of the policy.
+
+API ANSWER:
+
+
+================================================================================
+
+Test 22: Family Medicare Policy Wordings
+Question: Is there a waiting period for pre-existing diseases?
+Success: False | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Yes, there is a waiting period of 48 months for pre-existing diseases.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 23: Family Medicare Policy Wordings
+Question: What is the initial waiting period for any illness claim (other than accidental)?
+Success: False | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+There is a 30-day waiting period for any illness claim.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 24: Family Medicare Policy Wordings
+Question: What is the specific waiting period for conditions like Cataract or Hysterectomy?
+Success: False | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+There is a 24-month waiting period for a list of specified illnesses/surgeries, including Cataract and Hysterectomy.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 25: Family Medicare Policy Wordings
+Question: What is the maximum liability for road ambulance charges?
+Success: False | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The maximum liability for road ambulance charges is ₹2,000 per hospitalization.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 26: Family Medicare Policy Wordings
+Question: How is the Cumulative Bonus affected by a claim?
+Success: False | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+If a claim is made, the cumulative bonus accrued will be reduced by 10% of the Sum Insured at the next renewal.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 27: Family Medicare Policy Wordings
+Question: What is the maximum number of members that can be covered under a single floater policy?
+Success: False | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+A maximum of 6 members can be covered, with a maximum of 2 adults and up to 4 dependent children.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 28: Family Medicare Policy Wordings
+Question: Are domiciliary hospitalization expenses covered?
+Success: False | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+No, domiciliary hospitalization expenses are not covered under this policy.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 29: Family Medicare Policy Wordings
+Question: What is the age limit for dependent children to be covered?
+Success: False | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Dependent children are covered from 91 days up to 25 years of age.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 30: Family Medicare Policy Wordings
+Question: Are expenses related to dental treatment covered?
+Success: False | Latency: 3776ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Dental treatment or surgery is covered only if it requires hospitalization and is necessitated by an accident.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 31: The Constitution of India
+Question: Which article of the Constitution guarantees the right to equality?
+Success: True | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Article 14 of the Constitution guarantees that the State shall not deny to any person equality before the law or the equal protection of the laws within the territory of India.
+
+API ANSWER:
+
+
+================================================================================
+
+Test 32: The Constitution of India
+Question: Which part of the Constitution deals with Fundamental Rights?
+Success: False | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Part III of the Constitution deals with Fundamental Rights.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 33: The Constitution of India
+Question: What does Article 21 of the Constitution state?
+Success: False | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Article 21 states that no person shall be deprived of his life or personal liberty except according to procedure established by law.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 34: The Constitution of India
+Question: Which article abolishes "Untouchability"?
+Success: False | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Article 17 abolishes "Untouchability" and forbids its practice in any form.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 35: The Constitution of India
+Question: What is the subject matter of Article 19?
+Success: False | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Article 19 guarantees six fundamental freedoms to all citizens, including the freedom of speech and expression, assembly, association, movement, residence, and profession.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 36: The Constitution of India
+Question: Which part of the Constitution contains the Directive Principles of State Policy?
+Success: False | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Part IV of the Constitution contains the Directive Principles of State Policy.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 37: The Constitution of India
+Question: Are the Directive Principles of State Policy enforceable by any court?
+Success: False | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+No, the provisions contained in Part IV (Directive Principles of State Policy) shall not be enforceable by any court.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 38: The Constitution of India
+Question: What does Article 40 of the Constitution direct the State to do?
+Success: False | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Article 40 directs the State to take steps to organize village panchayats and endow them with such powers and authority as may be necessary to enable them to function as units of self-government.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 39: The Constitution of India
+Question: Under which article can a citizen move the Supreme Court for the enforcement of Fundamental Rights?
+Success: False | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Under Article 32, a citizen has the right to move the Supreme Court for the enforcement of their Fundamental Rights.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 40: The Constitution of India
+Question: What does Article 51A(g) state as a fundamental duty?
+Success: False | Latency: 2540ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Article 51A(g) states that it is a fundamental duty of every citizen "to protect and improve the natural environment including forests, lakes, rivers and wild life, and to have compassion for living creatures."
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 41: Newton's Principia
+Question: What is the first Law of Motion, also known as the law of inertia?
+Success: True | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 1.000
+----------------------------------------
+GROUND TRUTH:
+"Every body perseveres in its state of rest, or of uniform motion in a right line, unless it is compelled to change that state by forces impressed thereon."
+
+API ANSWER:
+
+
+================================================================================
+
+Test 42: Newton's Principia
+Question: How is the alteration of motion related to the motive force impressed, according to the second Law of Motion?
+Success: False | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The alteration of motion is ever proportional to the motive force impressed and is made in the direction of the right line in which that force is impressed.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 43: Newton's Principia
+Question: What is the third Law of Motion?
+Success: False | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+"To every action there is always opposed an equal reaction: or the mutual actions of two bodies upon each other are always equal, and directed to contrary parts."
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 44: Newton's Principia
+Question: What is Definition I in the Principia?
+Success: False | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+"The quantity of matter is the measure of the same, arising from its density and bulk conjointly."
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 45: Newton's Principia
+Question: How is the quantity of motion defined?
+Success: False | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+"The quantity of motion is the measure of the same, arising from the velocity and quantity of matter conjointly."
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 46: Newton's Principia
+Question: What is the "vis insita," or innate force of matter?
+Success: False | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+It is a power of resisting, by which every body, as much as in it lies, perseveres in its present state, whether it be of rest, or of moving uniformly forward in a right line.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 47: Newton's Principia
+Question: What is an impressed force?
+Success: False | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+An impressed force is an action exerted upon a body, in order to change its state, either of rest, or of uniform motion in a right line.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 48: Newton's Principia
+Question: According to Newton, how do the actions of two bodies upon each other relate?
+Success: False | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The mutual actions of two bodies upon each other are always equal and directed to contrary parts.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 49: Newton's Principia
+Question: If a horse draws a stone tied to a rope, how does the stone affect the horse?
+Success: False | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The stone, by the tending of the rope, draws the horse back as much as the horse draws the stone.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 50: Newton's Principia
+Question: What is the subject of the first book of the Principia?
+Success: False | Latency: 22510ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The first book is on the motion of bodies ("De motu corporum").
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 51: Pincode and Salary Data
+Question: What is the salary of Priya Patel?
+Success: True | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 1.000
+----------------------------------------
+GROUND TRUTH:
+Priya Patel's salary is 92,000.
+
+API ANSWER:
+
+
+================================================================================
+
+Test 52: Pincode and Salary Data
+Question: Who has a salary of 60,000?
+Success: False | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Rohan Gupta has a salary of 60,000.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 53: Pincode and Salary Data
+Question: What is the pincode for Ananya Reddy's location?
+Success: False | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The pincode for Ananya Reddy's location is 560001.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 54: Pincode and Salary Data
+Question: Which employee is associated with the pincode 400001?
+Success: False | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Vikram Singh is associated with the pincode 400001.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 55: Pincode and Salary Data
+Question: What is Aarav Sharma's salary?
+Success: False | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Aarav Sharma's salary is 75,000.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 56: Pincode and Salary Data
+Question: What is the pincode for the employee named Meera Krishnan?
+Success: False | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The pincode for Meera Krishnan is 600004.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 57: Pincode and Salary Data
+Question: Who has the highest salary listed in the document?
+Success: False | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Priya Patel has the highest salary listed, at 92,000.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 58: Pincode and Salary Data
+Question: What is the pincode for New Delhi in this dataset?
+Success: False | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The pincode for New Delhi in this dataset is 110001.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 59: Pincode and Salary Data
+Question: What is the salary of the employee located at pincode 700001?
+Success: False | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The employee is Arjun Banerjee, and their salary is 88,000.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 60: Pincode and Salary Data
+Question: What is the full name of the employee with the last name Singh?
+Success: False | Latency: 1784ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The full name is Vikram Singh.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 61: Mediclaim Insurance Policy (Group)
+Question: What is the waiting period for the Maternity Expenses and Newborn Child Cover Benefit?
+Success: True | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+A waiting period of 9 months applies for claims related to normal delivery, caesarean section, or extra-uterine pregnancy.
+
+API ANSWER:
+
+
+================================================================================
+
+Test 62: Mediclaim Insurance Policy (Group)
+Question: What is the maximum amount payable for Ambulance Charges per person per policy period?
+Success: False | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The maximum amount payable for Ambulance Charges is Rs. 1,000/- per person per policy period.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 63: Mediclaim Insurance Policy (Group)
+Question: Is treatment for correction of eyesight due to refractive error covered?
+Success: False | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+No, treatment for the correction of eyesight due to refractive error is excluded.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 64: Mediclaim Insurance Policy (Group)
+Question: Are expenses for vitamins and tonics covered?
+Success: False | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+Expenses for vitamins and tonics are excluded unless they form part of the treatment for injury or disease as certified by the attending physician.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 65: Mediclaim Insurance Policy (Group)
+Question: What is the time limit for submitting a claim to the TPA or Company?
+Success: False | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The claim must be filed within 30 days of discharge from the hospital.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 66: Mediclaim Insurance Policy (Group)
+Question: Is convalescence, general debility, or rest cure covered?
+Success: False | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+No, convalescence, general debility, rest cure, and similar conditions are not covered.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 67: Mediclaim Insurance Policy (Group)
+Question: What is the definition of "Hospital" in this policy?
+Success: False | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+A hospital must be an establishment with at least 15 in-patient beds (or 10 beds in Class 'C' towns) and be registered with the local authorities.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 68: Mediclaim Insurance Policy (Group)
+Question: Are expenses for cosmetic or aesthetic treatments covered?
+Success: False | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+No, any and all services for or related to cosmetic or aesthetic treatments are excluded.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 69: Mediclaim Insurance Policy (Group)
+Question: What is the cover for a newborn child under the Maternity benefit?
+Success: False | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+The newborn child is covered for any illness or injury from the date of birth up to the expiry of the policy, subject to the limit of maternity benefit.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
+Test 70: Mediclaim Insurance Policy (Group)
+Question: Is intentional self-injury covered by the policy?
+Success: False | Latency: 5465ms
+Accuracy - Fuzzy: 0.000 | Keywords: 0.000
+----------------------------------------
+GROUND TRUTH:
+No, claims arising from or traceable to intentional self-injury are not covered.
+
+API ANSWER:
+BATCH ERROR: 
+
+================================================================================
+
