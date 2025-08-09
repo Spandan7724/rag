@@ -262,6 +262,19 @@ class ChallengeDetector:
                 patterns_found.append(pattern)
                 confidence += 0.5
         
+        # Check for URL patterns with token-related keywords
+        url_pattern = r'https?://[^\s]+'
+        urls = re.findall(url_pattern, questions)
+        if urls:
+            for url in urls:
+                # Check if URL contains token-related keywords
+                token_keywords = ['token', 'secret', 'auth', 'credential']
+                for keyword in token_keywords:
+                    if keyword in url.lower():
+                        patterns_found.append(f"token_url_detected: {keyword}")
+                        confidence += 0.6  # High confidence for token URLs
+                        break
+        
         confidence = min(confidence, 1.0)
         
         return ChallengeDetection(
@@ -271,7 +284,8 @@ class ChallengeDetector:
             suggested_approach="Use web client to fetch secret token from API endpoint",
             metadata={
                 "requires_web_scraping": True,
-                "api_endpoint_call": True
+                "api_endpoint_call": True,
+                "detected_urls": urls
             }
         )
     
@@ -310,19 +324,30 @@ class ChallengeDetector:
         confidence = 0.0
         detected_languages = []
         
+        # Analyze questions and document separately to determine primary language context
+        question_languages = self._detect_question_languages(questions)
+        doc_languages = self._detect_document_languages(doc_content)
+        
+        # For combined analysis (backward compatibility)
         combined_text = questions + " " + doc_content
         
-        # Check each language's patterns
-        for language, patterns in self.multilingual_patterns.items():
-            language_found = False
-            for pattern in patterns:
-                if re.search(pattern, combined_text):
-                    patterns_found.append(f"{language}_pattern: {pattern}")
-                    language_found = True
-                    
-            if language_found:
+        # Merge question and document language detection
+        all_languages = {}
+        all_languages.update(question_languages)
+        
+        # Add document languages (with lower weight)
+        for lang, score in doc_languages.items():
+            if lang in all_languages:
+                all_languages[lang] += score
+            else:
+                all_languages[lang] = score
+                
+        # Determine detected languages and confidence
+        for language, score in all_languages.items():
+            if score > 0.2:  # Threshold for language detection
                 detected_languages.append(language)
-                confidence += 0.4  # Higher confidence per language
+                patterns_found.append(f"{language}_detected: score {score:.2f}")
+                confidence += min(score, 0.4)  # Cap contribution per language
         
         # Check for Malayalam news content specifically
         malayalam_news_count = 0
@@ -342,17 +367,25 @@ class ChallengeDetector:
             
         confidence = min(confidence, 1.0)
         
-        # Determine primary language
-        primary_language = detected_languages[0] if detected_languages else "unknown"
+        # Determine primary language - prioritize question language over document language
+        primary_language = "unknown"
+        if question_languages:
+            # Use the most common language in questions
+            primary_language = max(question_languages.items(), key=lambda x: x[1])[0]
+        elif detected_languages:
+            primary_language = detected_languages[0]
         
-        # Enhanced metadata
+        # Enhanced metadata with question/document language breakdown
         metadata = {
             "language_detected": primary_language,
             "all_languages": detected_languages,
+            "question_languages": question_languages,
+            "document_languages": doc_languages,
             "needs_special_tokenization": True,
             "content_type": "news" if malayalam_news_count > 0 else "general",
             "malayalam_news_indicators": malayalam_news_count,
-            "processing_hints": self._get_language_processing_hints(primary_language)
+            "processing_hints": self._get_language_processing_hints(primary_language),
+            "language_priority": "question_first"  # Indicates we prioritize question language
         }
         
         return ChallengeDetection(
@@ -387,6 +420,42 @@ class ChallengeDetector:
         }
         
         return hints.get(language, hints["unknown"])
+    
+    def _detect_question_languages(self, questions: str) -> Dict[str, float]:
+        """Detect languages in questions specifically"""
+        question_languages = {}
+        
+        for language, patterns in self.multilingual_patterns.items():
+            score = 0.0
+            for pattern in patterns:
+                matches = len(re.findall(pattern, questions))
+                if matches > 0:
+                    score += matches * 0.3  # Weight for question content
+            
+            if score > 0:
+                question_languages[language] = score
+        
+        # Check if it's primarily English (no other language patterns found)
+        if not question_languages:
+            question_languages['english'] = 1.0
+        
+        return question_languages
+    
+    def _detect_document_languages(self, doc_content: str) -> Dict[str, float]:
+        """Detect languages in document content specifically"""
+        doc_languages = {}
+        
+        for language, patterns in self.multilingual_patterns.items():
+            score = 0.0
+            for pattern in patterns:
+                matches = len(re.findall(pattern, doc_content))
+                if matches > 0:
+                    score += matches * 0.1  # Lower weight for document content
+            
+            if score > 0:
+                doc_languages[language] = score
+        
+        return doc_languages
     
     def _detect_complex_reasoning(self, questions: str) -> ChallengeDetection:
         """Detect complex reasoning requirements"""

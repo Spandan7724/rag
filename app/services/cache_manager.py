@@ -7,6 +7,7 @@ import time
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 from app.core.config import settings
+from app.utils.debug import conditional_print
 
 
 @dataclass
@@ -29,19 +30,20 @@ class CacheManager:
         self.query_cache: Dict[str, CacheEntry] = {}
         self.embedding_cache: Dict[str, CacheEntry] = {}
         self.reranker_cache: Dict[str, CacheEntry] = {}
+        self.answer_cache: Dict[str, CacheEntry] = {}
         
         # Performance metrics
         self.hits = 0
         self.misses = 0
         self.total_requests = 0
         
-        print("Cache Manager initialized")
+        conditional_print("Cache Manager initialized")
         if settings.enable_result_caching:
-            print(f"  - Query result caching enabled (TTL: {settings.cache_ttl_seconds}s)")
+            conditional_print(f"  - Query result caching enabled (TTL: {settings.cache_ttl_seconds}s)")
         if settings.enable_embedding_cache:
-            print("  - Embedding caching enabled")
+            conditional_print("  - Embedding caching enabled")
         if settings.enable_reranker_cache:
-            print("  - Reranker score caching enabled")
+            conditional_print("  - Reranker score caching enabled")
     
     def _generate_cache_key(self, data: Any) -> str:
         """Generate cache key from data"""
@@ -186,6 +188,34 @@ class CacheManager:
             ttl=settings.cache_ttl_seconds * 2  # 2 hours
         )
     
+    async def get_answer_cache(self, cache_key: str):
+        """Get cached complete answer response"""
+        if cache_key in self.answer_cache:
+            entry = self.answer_cache[cache_key]
+            if not entry.is_expired():
+                self.hits += 1
+                return entry.value
+            else:
+                del self.answer_cache[cache_key]
+        
+        self.misses += 1
+        return None
+    
+    async def set_answer_cache(self, cache_key: str, response) -> None:
+        """Cache complete answer response"""
+        # Cache answers for 1 hour
+        self.answer_cache[cache_key] = CacheEntry(
+            value=response,
+            timestamp=time.time(),
+            ttl=settings.cache_ttl_seconds * 1  # 1 hour
+        )
+        
+        # Periodic cleanup (every 25 entries)
+        if len(self.answer_cache) % 25 == 0:
+            cleaned = self._cleanup_expired(self.answer_cache)
+            if cleaned > 0:
+                print(f"  Cleaned {cleaned} expired answer cache entries")
+    
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache performance statistics"""
         hit_rate = (self.hits / self.total_requests * 100) if self.total_requests > 0 else 0
@@ -198,12 +228,14 @@ class CacheManager:
             "cache_sizes": {
                 "query_cache": len(self.query_cache),
                 "embedding_cache": len(self.embedding_cache),
-                "reranker_cache": len(self.reranker_cache)
+                "reranker_cache": len(self.reranker_cache),
+                "answer_cache": len(self.answer_cache)
             },
             "memory_usage_estimate_mb": round(
                 (len(self.query_cache) * 0.5 + 
                  len(self.embedding_cache) * 0.1 + 
-                 len(self.reranker_cache) * 0.05), 2
+                 len(self.reranker_cache) * 0.05 +
+                 len(self.answer_cache) * 1.0), 2  # Answers are larger
             )
         }
     
@@ -223,6 +255,10 @@ class CacheManager:
             cleared["reranker"] = len(self.reranker_cache)
             self.reranker_cache.clear()
         
+        if cache_type in ["all", "answer"]:
+            cleared["answer"] = len(self.answer_cache)
+            self.answer_cache.clear()
+        
         if cache_type == "all":
             self.hits = 0
             self.misses = 0
@@ -235,7 +271,8 @@ class CacheManager:
         cleaned = {
             "query": self._cleanup_expired(self.query_cache),
             "embedding": self._cleanup_expired(self.embedding_cache),
-            "reranker": self._cleanup_expired(self.reranker_cache)
+            "reranker": self._cleanup_expired(self.reranker_cache),
+            "answer": self._cleanup_expired(self.answer_cache)
         }
         
         total_cleaned = sum(cleaned.values())

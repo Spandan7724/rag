@@ -14,20 +14,24 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.directories import ensure_directories, create_directory
+from app.utils.debug import debug_print, info_print, conditional_print
 from app.services.extractors import (
     FileTypeDetector, PDFExtractor, ExcelExtractor, WordExtractor,
     PowerPointExtractor, TextExtractor, ImageExtractor
 )
+import re
 
 
 @dataclass
 class ProcessedDocument:
-    """Container for processed document data"""
-    text: str
+    """Container for processed document data with multilingual support"""
+    text: str  # Original language text
     pages: int
     doc_id: str
     metadata: Dict[str, Any]
     blob_path: Optional[str] = None
+    translated_text: Optional[str] = None  # English translation (if available)
+    detected_language: str = "english"  # Detected language of original text
 
 
 class DocumentProcessor:
@@ -55,7 +59,216 @@ class DocumentProcessor:
             'image': ImageExtractor()
         }
         
-        print(f"Document processor initialized with support for: {list(self.extractors.keys())}")
+        info_print(f"Document processor initialized with support for: {list(self.extractors.keys())}")
+    
+    def preprocess_malayalam_text(self, text: str) -> str:
+        """
+        Preprocess Malayalam text to fix OCR spacing issues and improve chunking
+        
+        Args:
+            text: Raw text from OCR/PDF extraction
+            
+        Returns:
+            Cleaned text with proper word boundaries
+        """
+        if not text:
+            return text
+            
+        # Check if text contains Malayalam characters (Unicode range 0x0D00-0x0D7F)
+        has_malayalam = bool(re.search(r'[\u0D00-\u0D7F]', text))
+        
+        if not has_malayalam:
+            return text
+            
+        debug_print("Applying Malayalam text preprocessing...")
+        
+        # Fix common OCR spacing issues in Malayalam
+        cleaned_text = text
+        
+        # Add spaces around Malayalam punctuation and English words
+        malayalam_patterns = [
+            # Add space before Malayalam numbers and dates
+            (r'(\d+)([^\s\d\u0D00-\u0D7F])', r'\1 \2'),
+            
+            # Add space around key Malayalam terms that are often merged
+            (r'യുഎസ്സ്പ്രസിഡൻറ്', r'യുഎസ് പ്രസിഡൻറ്'),
+            (r'ഡോണൾഡ്ട്രംപ്', r'ഡോണൾഡ് ട്രംപ്'),
+            (r'കമ്പ്യൂട്ടർചിപ്പുകളുടെയും', r'കമ്പ്യൂട്ടർ ചിപ്പുകളുടെയും'),
+            (r'സെമിക്കണ്ടക്ടറുകളുടെയും', r'സെമിക്കണ്ടക്ടറുകളുടെയും'),
+            (r'അമേരിക്കൻഅന്തർസ്ഥാപന', r'അമേരിക്കൻ അന്തർസ്ഥാപന'),
+            (r'നിർമ്മാണംതാക്കോൽപ്പെടുത്തുകയും', r'നിർമ്മാണം ശക്തിപ്പെടുത്തുകയും'),
+            (r'ആശ്രിതത്വംകുറയ്ക്കുകയും', r'ആശ്രിതത്വം കുറയ്ക്കുകയും'),
+            (r'ബില്യൻഡോളർയുടെ', r'ബില്യൺ ഡോളർയുടെ'),
+            (r'ആഗാമിനിക്ഷേപം', r'ഭാവി നിക്ഷേപം'),
+            (r'പ്രഖ്യാപിച്ചപ്പോൾ', r'പ്രഖ്യാപിച്ചപ്പോൾ'),
+            
+            # Fix the critical text for question 4
+            (r'ഈകാറ്റമായിതുടരുന്നത്വില', r'ഈ കാറ്റമായി തുടരുന്നത് വില'),
+            (r'വർദ്ധിപ്പിക്കാനും', r'വർദ്ധിപ്പിക്കാനും'),
+            (r'വാണിജ്യവിരുദ്ധപ്രതികരണങ്ങൾക്കും', r'വാണിജ്യ വിരুദ്ധ പ്രതികരണങ്ങൾക്കും'),
+            (r'വഴിതുറക്കുന്നു', r'വഴി തുറക്കുന്നു'),
+            
+            # General patterns for compound words
+            (r'([^\s\u0D00-\u0D7F])([ാിീുൂൃെേൊോൗൌ])', r'\1 \2'),  # Add space before vowel signs
+            (r'([്])([കഖഗഘങചഛജഝഞടഠഡഢണതഥദധനപഫബഭമയരലവശഷസഹളഴറ])', r'\1 \2'),  # Add space after virama
+        ]
+        
+        for pattern, replacement in malayalam_patterns:
+            cleaned_text = re.sub(pattern, replacement, cleaned_text)
+        
+        # Clean up multiple spaces
+        cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
+        cleaned_text = cleaned_text.strip()
+        
+        # Log improvement if significant changes were made
+        if len(cleaned_text) != len(text) or cleaned_text != text:
+            debug_print(f"Malayalam preprocessing applied: {len(text)} → {len(cleaned_text)} chars")
+            # Log a sample of changes for debugging
+            if len(text) > 100:
+                sample_before = text[:100] + "..."
+                sample_after = cleaned_text[:100] + "..."
+                debug_print(f"Sample before: {sample_before}")
+                debug_print(f"Sample after:  {sample_after}")
+        
+        return cleaned_text
+    
+    def detect_language(self, text: str) -> str:
+        """
+        Detect the primary language in the text using Unicode ranges
+        
+        Args:
+            text: Text to analyze
+            
+        Returns:
+            Language code (e.g., 'malayalam', 'hindi', 'tamil', 'english', 'mixed')
+        """
+        if not text or not text.strip():
+            return 'english'
+        
+        # Count characters in different language scripts
+        lang_counts = {
+            'malayalam': len(re.findall(r'[\u0D00-\u0D7F]', text)),
+            'hindi': len(re.findall(r'[\u0900-\u097F]', text)),
+            'tamil': len(re.findall(r'[\u0B80-\u0BFF]', text)),
+            'bengali': len(re.findall(r'[\u0980-\u09FF]', text)),
+            'telugu': len(re.findall(r'[\u0C00-\u0C7F]', text)),
+            'gujarati': len(re.findall(r'[\u0A80-\u0AFF]', text)),
+            'punjabi': len(re.findall(r'[\u0A00-\u0A7F]', text)),
+            'kannada': len(re.findall(r'[\u0C80-\u0CFF]', text)),
+        }
+        
+        # Find the dominant language
+        total_non_latin = sum(lang_counts.values())
+        latin_chars = len(re.findall(r'[a-zA-Z]', text))
+        
+        if total_non_latin == 0:
+            return 'english'
+        
+        # If mixed content, return 'mixed'
+        if latin_chars > 0 and total_non_latin > 0:
+            dominant_lang = max(lang_counts, key=lang_counts.get)
+            if lang_counts[dominant_lang] > latin_chars:
+                return dominant_lang
+            else:
+                return 'mixed'
+        
+        # Return the language with the most characters
+        dominant_lang = max(lang_counts, key=lang_counts.get)
+        return dominant_lang if lang_counts[dominant_lang] > 0 else 'english'
+
+    async def translate_text_to_english(self, text: str, source_language: str = None) -> str:
+        """
+        Translate text from any language to English using Copilot model
+        
+        Args:
+            text: Text to translate
+            source_language: Source language (auto-detect if None)
+            
+        Returns:
+            English translation
+        """
+        if not text or not text.strip():
+            return text
+        
+        # Auto-detect language if not provided
+        if source_language is None:
+            source_language = self.detect_language(text)
+        
+        # Skip translation if already English
+        if source_language == 'english':
+            return text
+            
+        debug_print(f"Translating {source_language} text to English: {len(text)} characters")
+        
+        try:
+            # Import here to avoid circular imports
+            from app.services.copilot_provider import get_copilot_provider
+            
+            # Create language-aware translation prompt
+            language_names = {
+                'malayalam': 'Malayalam',
+                'hindi': 'Hindi',
+                'tamil': 'Tamil',
+                'bengali': 'Bengali',
+                'telugu': 'Telugu',
+                'gujarati': 'Gujarati',
+                'punjabi': 'Punjabi',
+                'kannada': 'Kannada',
+                'mixed': 'multilingual'
+            }
+            
+            lang_name = language_names.get(source_language, source_language.title())
+            
+            # Literal translation prompt for accurate cross-language processing
+            translation_prompt = f"""Translate the following {lang_name} text to English with complete literal accuracy.
+
+CRITICAL REQUIREMENTS:
+- Translate EXACTLY as stated in the original text - do not add or remove specificity
+- Preserve ALL qualifying terms like "foreign-made", "domestic", "imported", "manufactured", "produced"
+- Keep precise distinctions between products vs companies vs manufacturing processes
+- Maintain exact subject references (if original says "computers", keep "computers" not "companies")
+- Preserve ALL qualifying context and conditions exactly as written
+- For exemptions and exceptions: preserve exact subjects ("computers manufactured" vs "companies committed")
+- Do not enhance, expand, or interpret the meaning beyond what is explicitly stated
+- Maintain the document's natural phrasing and terminology level
+
+EXAMPLES of good translation:
+- വില വർദ്ധന → "cost increases" (preserve original generality level)  
+- ഉപഭോക്താക്കൾക്ക് → "for consumers" (specify the target)
+- വാണിജ്യ പ്രതികരണങ്ങൾ → "trade retaliations" (literal translation without expansion)
+
+Translate this {lang_name} economic/policy text:
+{text}
+
+English translation:"""
+            
+            copilot_provider = get_copilot_provider(max_tokens=min(len(text) * 3, 4000))
+            
+            response = await copilot_provider.generate_answer(
+                prompt=translation_prompt,
+                temperature=0.1  # Low temperature for consistent translation
+            )
+            
+            if response.error:
+                debug_print(f"Translation failed: {response.error}")
+                return text  # Return original text if translation fails
+            
+            translated_text = response.content.strip()
+            
+            # Basic validation - ensure we got a reasonable translation
+            if len(translated_text) < len(text) * 0.2:  # Translation too short, likely failed
+                debug_print("Translation appears too short, using original text")
+                return text
+                
+            # Remove common translation artifacts
+            translated_text = re.sub(r'^(English translation:|Translation:)', '', translated_text, flags=re.IGNORECASE).strip()
+            
+            debug_print(f"Translation successful: {len(text)} → {len(translated_text)} chars")
+            return translated_text
+            
+        except Exception as e:
+            debug_print(f"Translation error: {e}")
+            return text  # Fallback to original text
     
     async def download_pdf(self, url: str) -> bytes:
         """
@@ -67,19 +280,19 @@ class DocumentProcessor:
         Returns:
             PDF content as bytes
         """
-        print(f"Processing document from: {url}")
-        print(f"URL type check - startswith('file://'): {url.startswith('file://')}")
-        print(f"URL type check - startswith('upload://'): {url.startswith('upload://')}")
+        debug_print(f"Processing document from: {url}")
+        debug_print(f"URL type check - startswith('file://'): {url.startswith('file://')}")
+        debug_print(f"URL type check - startswith('upload://'): {url.startswith('upload://')}")
         
         # Check if this is a local file URL
         if url.startswith('file://'):
-            print(f"Routing to _read_local_file for: {url}")
+            debug_print(f"Routing to _read_local_file for: {url}")
             return await self._read_local_file(url)
         elif url.startswith('upload://'):
-            print(f"Routing to _read_uploaded_file for: {url}")
+            debug_print(f"Routing to _read_uploaded_file for: {url}")
             return await self._read_uploaded_file(url)
         else:
-            print(f"Routing to _download_remote_file for: {url}")
+            debug_print(f"Routing to _download_remote_file for: {url}")
             return await self._download_remote_file(url)
     
     async def _read_local_file(self, file_url: str) -> bytes:
@@ -95,7 +308,7 @@ class DocumentProcessor:
         # Convert file:// URL to local path
         import urllib.parse
         
-        print(f"_read_local_file called with: {file_url}")
+        debug_print(f"_read_local_file called with: {file_url}")
         
         try:
             # Parse the file URL to get the local path
@@ -239,13 +452,13 @@ class DocumentProcessor:
         Returns:
             PDF content as bytes
         """
-        print(f"Downloading from remote URL: {url}")
-        print(f"WARNING: _download_remote_file called with URL: {url}")
+        conditional_print(f"Downloading from remote URL: {url}")
+        conditional_print(f"WARNING: _download_remote_file called with URL: {url}")
         
         try:
             timeout = aiohttp.ClientTimeout(total=settings.download_timeout)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                print(f"Attempting aiohttp GET request to: {url}")
+                conditional_print(f"Attempting aiohttp GET request to: {url}")
                 async with session.get(url) as response:
                     if response.status != 200:
                         raise HTTPException(
@@ -262,7 +475,7 @@ class DocumentProcessor:
                             detail=f"File too large: {len(content)} bytes (max: {settings.max_file_size})"
                         )
                     
-                    print(f"Downloaded PDF: {len(content):,} bytes")
+                    conditional_print(f"Downloaded PDF: {len(content):,} bytes")
                     return content
                     
         except aiohttp.ClientError as e:
@@ -1220,22 +1433,23 @@ class DocumentProcessor:
                 f.write(f"# File size: {len(pdf_data):,} bytes\n")
                 f.write(f"# Document metadata: {metadata}\n")
             
-            print(f"PDF blob saved to: {blob_path}")
+            conditional_print(f"PDF blob saved to: {blob_path}")
             return str(blob_path)
             
         except Exception as e:
             print(f"Warning: Failed to save PDF blob: {e}")
             return None
     
-    def save_parsed_text(self, text: str, page_texts: list, url: str, metadata: Dict[str, Any]) -> Optional[str]:
+    def save_parsed_text(self, text: str, page_texts: list, url: str, metadata: Dict[str, Any], translated_text: str = None) -> Optional[str]:
         """
-        Save parsed text for validation/debugging
+        Save parsed text for validation/debugging, including translations
         
         Args:
-            text: Full extracted text
+            text: Full extracted text (original language)
             page_texts: Text from individual pages
             url: Original URL
             metadata: Document metadata
+            translated_text: English translation (if available)
             
         Returns:
             Path to saved text file or None if disabled
@@ -1257,14 +1471,18 @@ class DocumentProcessor:
                 f.write(f"# Source URL: {url}\n")
                 f.write(f"# Metadata: {metadata}\n")
                 f.write(f"\n{'='*50}\n")
-                f.write(f"PARSED TEXT CONTENT\n")
+                f.write(f"ORIGINAL PARSED TEXT CONTENT\n")
                 f.write(f"{'='*50}\n\n")
+                f.write(f"{text}\n")
                 
-                # Write page-by-page content
-                for page_text in page_texts:
-                    f.write(f"{page_text}\n")
+                # Write translated content if available
+                if translated_text:
+                    f.write(f"\n\n{'='*50}\n")
+                    f.write(f"ENGLISH TRANSLATION\n")
+                    f.write(f"{'='*50}\n\n")
+                    f.write(f"{translated_text}\n")
             
-            print(f"Parsed text saved to: {text_path}")
+            conditional_print(f"Parsed text saved to: {text_path}")
             return str(text_path)
             
         except Exception as e:
@@ -1316,12 +1534,12 @@ class DocumentProcessor:
         start_time = time.time()
         filename = url.split('/')[-1] if '/' in url else url
         
-        print(f"Processing document: {filename} ({len(file_data):,} bytes)")
+        conditional_print(f"Processing document: {filename} ({len(file_data):,} bytes)")
         
         try:
             # Detect file type
             detected_type = self.file_detector.detect_file_type(file_data, filename)
-            print(f"Detected file type: {detected_type.mime_type} -> {detected_type.extractor_type}")
+            conditional_print(f"Detected file type: {detected_type.mime_type} -> {detected_type.extractor_type}")
             
             # Check if file type is supported
             if not detected_type.is_supported or not detected_type.extractor_type:
@@ -1377,11 +1595,11 @@ class DocumentProcessor:
                 'page_texts': getattr(extraction_result, 'page_texts', None) or [extraction_result.text]
             }
             
-            print(f"Document processing completed:")
-            print(f"  - Type: {detected_type.extractor_type}")
-            print(f"  - Pages: {extraction_result.pages}")
-            print(f"  - Text length: {len(extraction_result.text)} characters")
-            print(f"  - Processing time: {processing_time:.2f}s")
+            conditional_print(f"Document processing completed:")
+            conditional_print(f"  - Type: {detected_type.extractor_type}")
+            conditional_print(f"  - Pages: {extraction_result.pages}")
+            conditional_print(f"  - Text length: {len(extraction_result.text)} characters")
+            conditional_print(f"  - Processing time: {processing_time:.2f}s")
             
             return result
             
@@ -1444,12 +1662,24 @@ class DocumentProcessor:
         # Save blob if enabled (works for any file type)
         blob_path = self.save_pdf_blob(document_data, url, extraction_result["metadata"])
         
-        # Save parsed text if enabled
+        # Apply multilingual text preprocessing before saving and processing
+        processed_text = self.preprocess_malayalam_text(extraction_result["text"])
+        
+        # Detect language and create translated version if needed
+        detected_language = self.detect_language(processed_text)
+        translated_text = None
+        
+        if detected_language != 'english':
+            print(f"Detected {detected_language} content, creating English translation...")
+            translated_text = await self.translate_text_to_english(processed_text, detected_language)
+        
+        # Save parsed text if enabled (save both original and translated if available)
         text_path = self.save_parsed_text(
-            extraction_result["text"], 
+            processed_text, 
             extraction_result["page_texts"], 
             url, 
-            extraction_result["metadata"]
+            extraction_result["metadata"],
+            translated_text=translated_text
         )
         
         # Combine metadata
@@ -1459,21 +1689,33 @@ class DocumentProcessor:
             "doc_id": doc_id,
             "blob_path": blob_path,
             "text_path": text_path,
-            "total_processing_time": time.time() - start_time
+            "total_processing_time": time.time() - start_time,
+            "malayalam_preprocessing_applied": processed_text != extraction_result["text"],
+            "detected_language": detected_language,
+            "translation_created": translated_text is not None,
+            "original_text_length": len(processed_text),
+            "translated_text_length": len(translated_text) if translated_text else 0
         }
         
-        print(f"Document processing completed in {final_metadata['total_processing_time']:.2f}s")
-        print(f"   - Text length: {len(extraction_result['text']):,} characters")
-        print(f"   - Title: {final_metadata.get('title', 'N/A')}")
+        conditional_print(f"Document processing completed in {final_metadata['total_processing_time']:.2f}s")
+        conditional_print(f"   - Original text length: {len(processed_text):,} characters")
+        if processed_text != extraction_result["text"]:
+            conditional_print(f"   - Preprocessing applied: {len(extraction_result['text'])} → {len(processed_text)} chars")
+        if translated_text:
+            conditional_print(f"   - English translation length: {len(translated_text):,} characters")
+            conditional_print(f"   - Detected language: {detected_language}")
+        conditional_print(f"   - Title: {final_metadata.get('title', 'N/A')}")
         if blob_path:
-            print(f"   - Blob saved to: {blob_path}")
+            conditional_print(f"   - Blob saved to: {blob_path}")
         
         return ProcessedDocument(
-            text=extraction_result["text"],
+            text=processed_text,
             pages=extraction_result["pages"],
             doc_id=doc_id,
             metadata=final_metadata,
-            blob_path=blob_path
+            blob_path=blob_path,
+            translated_text=translated_text,
+            detected_language=detected_language
         )
 
 

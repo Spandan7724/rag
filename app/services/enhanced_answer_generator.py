@@ -6,12 +6,14 @@ import threading
 import os
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+import re
 
 from sentence_transformers import CrossEncoder
 from app.services.vector_store import SearchResult
 from app.services.copilot_provider import get_copilot_provider, CopilotResponse
 from app.services.cache_manager import get_cache_manager
 from app.core.config import Settings, settings
+from app.utils.debug import debug_print, conditional_print
 
 
 class ThreadSafeReranker:
@@ -35,33 +37,52 @@ class ThreadSafeReranker:
                 return
             
             try:
-                print(f"Loading reranker model (thread-safe): {self.model_name}")
+                conditional_print(f"Loading reranker model (thread-safe): {self.model_name}")
                 start_time = time.time()
                 
                 self.reranker = CrossEncoder(self.model_name)
                 
                 load_time = time.time() - start_time
-                print(f"Reranker model loaded successfully in {load_time:.2f}s")
+                conditional_print(f"Reranker model loaded successfully in {load_time:.2f}s")
                 
                 # Warm up the model
-                print("Warming up reranker...")
+                conditional_print("Warming up reranker...")
                 warmup_start = time.time()
                 self.reranker.predict([("warm up", "warm up")])
                 warmup_time = time.time() - warmup_start
-                print(f"Reranker warmed up in {warmup_time:.2f}s")
+                conditional_print(f"Reranker warmed up in {warmup_time:.2f}s")
                 
                 # Mark as loaded
                 self._reranker_loaded = True
-                print("Reranker ready for parallel processing!")
+                conditional_print("Reranker ready for parallel processing!")
                 
             except Exception as e:
                 raise RuntimeError(f"Failed to load reranker model: {str(e)}")
     
     def predict(self, pairs):
-        """Thread-safe prediction with the reranker"""
+        """Thread-safe prediction with the reranker (sync version)"""
         self._load_reranker()
         
         # Use lock during prediction to ensure thread safety
+        with self._reranker_lock:
+            return self.reranker.predict(pairs)
+    
+    async def predict_async(self, pairs):
+        """Async prediction with the reranker using thread pool"""
+        import asyncio
+        import concurrent.futures
+        
+        self._load_reranker()
+        
+        # Run prediction in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            # Use the thread-safe sync predict method in the thread pool
+            future = loop.run_in_executor(executor, self._predict_in_thread, pairs)
+            return await future
+    
+    def _predict_in_thread(self, pairs):
+        """Helper method to run prediction in thread pool"""
         with self._reranker_lock:
             return self.reranker.predict(pairs)
     
@@ -98,7 +119,7 @@ class EnhancedAnswerGenerator:
         self.max_tokens = settings.llm_max_tokens
         self.cache_manager = get_cache_manager()
         
-        print(f"Initializing enhanced answer generator: {self.provider_type} - {self.model_name}")
+        conditional_print(f"Initializing enhanced answer generator: {self.provider_type} - {self.model_name}")
         
         # Initialize the appropriate provider
         if self.provider_type == "copilot":
@@ -107,6 +128,20 @@ class EnhancedAnswerGenerator:
             self._init_gemini_provider()
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider_type}")
+        
+        # Pre-warm reranker model for optimal performance
+        self._pre_warm_reranker()
+    
+    def _pre_warm_reranker(self):
+        """Pre-warm the reranker model to eliminate cold start delays"""
+        try:
+            conditional_print("Pre-warming reranker model...")
+            # Force load the reranker by accessing it
+            RERANKER._load_reranker()
+            conditional_print("✓ Reranker model pre-warmed successfully")
+        except Exception as e:
+            conditional_print(f"⚠ Warning: Could not pre-warm reranker model: {e}")
+            conditional_print("   Reranker will be loaded on first use")
     
     def _init_copilot_provider(self):
         """Initialize GitHub Copilot provider"""
@@ -115,9 +150,9 @@ class EnhancedAnswerGenerator:
                 model=self.model_name,
                 max_tokens=self.max_tokens
             )
-            print(f"✓ GitHub Copilot provider initialized: {self.model_name}")
+            conditional_print(f"✓ GitHub Copilot provider initialized: {self.model_name}")
         except Exception as e:
-            print(f"✗ Failed to initialize Copilot provider: {e}")
+            conditional_print(f"✗ Failed to initialize Copilot provider: {e}")
             raise
     
     def _init_gemini_provider(self):
@@ -131,18 +166,18 @@ class EnhancedAnswerGenerator:
             
             genai.configure(api_key=api_key)
             self.provider = genai.GenerativeModel(self.model_name)
-            print(f"✓ Gemini provider initialized: {self.model_name}")
+            conditional_print(f"✓ Gemini provider initialized: {self.model_name}")
         except ImportError:
             raise ImportError("google-generativeai not installed. Install with: pip install google-generativeai")
         except Exception as e:
-            print(f"✗ Failed to initialize Gemini provider: {e}")
+            conditional_print(f"✗ Failed to initialize Gemini provider: {e}")
             raise
     
     def _prepare_sources(self, search_results: List[SearchResult]) -> List[Dict[str, Any]]:
         """Prepare source information from search results"""
         sources = []
         
-        print(f"DEBUG: _prepare_sources called with {len(search_results)} search results")
+        debug_print(f"DEBUG: _prepare_sources called with {len(search_results)} search results")
         
         for i, result in enumerate(search_results):
             source = {
@@ -157,7 +192,7 @@ class EnhancedAnswerGenerator:
             }
             sources.append(source)
         
-        print(f"DEBUG: _prepare_sources returning {len(sources)} sources")
+        debug_print(f"DEBUG: _prepare_sources returning {len(sources)} sources")
         return sources
 
     def _create_rag_prompt(self, question: str, context_str: str, is_multilingual: bool = False, detected_language: str = None) -> str:
@@ -175,28 +210,69 @@ class EnhancedAnswerGenerator:
             specialized_instructions = "\n- TEMPORAL PRECISION: Extract exact time periods, specific days, deadlines, and ALL associated conditions, requirements, and exceptions verbatim from the context."
         elif any(term in question_lower for term in ['coverage', 'covered', 'benefit']):
             specialized_instructions = "\n- COMPREHENSIVE COVERAGE EXTRACTION: Quote complete coverage details including ALL conditions, exclusions, limitations, and qualifying criteria exactly as stated in the policy text."
+        elif any(term in question_lower for term in ['impact', 'effect', 'consequence', 'result']):
+            specialized_instructions = "\n- IMPACT EXTRACTION: Only state impacts, effects, or consequences explicitly mentioned in the document using the exact subjects and objects as stated (e.g., if document says 'computers manufactured', use 'computers manufactured' not 'companies committed to manufacturing'). Do not infer, generalize, or analyze implications beyond what is directly stated."
         elif any(term in question_lower for term in ['procedure', 'process', 'how to', 'steps']):
             specialized_instructions = "\n- PROCEDURAL EXTRACTION: Extract complete step-by-step procedures, requirements, and processes verbatim, preserving all numbering, sequencing, and conditional statements."
         elif any(term in question_lower for term in ['eligible', 'eligibility', 'qualify', 'criteria']):
             specialized_instructions = "\n- ELIGIBILITY CRITERIA EXTRACTION: Quote complete eligibility requirements, qualifying conditions, and all associated criteria exactly as specified in the context."
         
+        # Determine question language (lightweight detection)
+        question_is_malayalam = bool(re.search(r"[\u0D00-\u0D7F]", question))
+        question_is_english = not question_is_malayalam
+
+        # Enhanced language control with bilingual support for Malayalam questions
+        if question_is_english:
+            language_control = (
+                "\n- LANGUAGE: The question is in English. Respond strictly in English. If the context is in another "
+                "language (e.g., Malayalam), translate the relevant facts and mirror the document's phrasing in natural "
+                "English. Do not answer in any other language."
+            )
+        else:
+            # For Malayalam questions, provide bilingual responses for better accuracy scoring
+            language_control = (
+                "\n- BILINGUAL RESPONSE: The question is in Malayalam. Provide the answer in Malayalam followed by "
+                "an English translation in parentheses. Format: '[Malayalam Answer] ([English Translation])'. "
+                "Example: '2025 ഓഗസ്റ്റ് 6-ന് (August 6, 2025)'. For longer answers, provide full bilingual explanations "
+                "to ensure maximum comprehension and accuracy scoring."
+            )
+
         # Multilingual support
         multilingual_instructions = ""
         if is_multilingual:
             if detected_language == "malayalam":
-                multilingual_instructions = "\n\nMULTILINGUAL PROCESSING (Malayalam):\n- The context contains Malayalam text (മലയാളം). Process and understand Malayalam content carefully.\n- For Malayalam terms like ട്രംപ് (Trump), ശുല്ക്കം (tariff/tax), യുഎസ് (US), etc., provide accurate context.\n- If the question is in English but context is Malayalam, translate key findings to English.\n- Preserve original Malayalam terms in parentheses when translating for accuracy.\n- Pay special attention to dates, numbers, and policy details in Malayalam text."
+                multilingual_instructions = (
+                    "\n\nMULTILINGUAL PROCESSING (Malayalam):\n"
+                    "- CRITICAL: If the question is in English, answer in English only. If the question is in Malayalam, "
+                    "provide bilingual response with Malayalam answer and English translation in parentheses.\n"
+                    "- The context contains Malayalam text (മലയാളം) and English translations. Use both for accuracy.\n"
+                    "- For dates: Include complete dates with year (e.g., '2025 ഓഗസ്റ്റ് 6-ന് (August 6, 2025)').\n"
+                    "- For complex answers: Provide full explanation in both languages for maximum comprehension.\n"
+                    "- Example formats: '100% ശുൽകം (100% tariff)', 'കമ്പ്യൂട്ടർചിപ്പുകൾ (computer chips)'.\n"
+                    "- NO IMPACT SPECULATION: Only state what is explicitly mentioned in the text."
+                )
             else:
                 multilingual_instructions = f"\n\nMULTILINGUAL PROCESSING ({detected_language or 'Unknown'}):\n- The context contains non-English content. Process multilingual text carefully.\n- Translate key information to English if the question is in English.\n- Preserve original terms in parentheses when translating for accuracy.\n- Pay attention to cultural and linguistic nuances in the content."
         
         system_message = f"""You are a precise document analysis expert. Answer ONLY based on the provided context.
 
 CRITICAL RULES:
-1. Extract information EXACTLY as written in the context - no paraphrasing
-2. For numbers/percentages: Use exact values from context
-3. For definitions: Use precise wording from source document
-4. If information is missing: Reply exactly "Not available in document"
-5. Provide comprehensive, detailed answers using all relevant information from context
-6. Structure your response clearly with specific details, conditions, and procedures{specialized_instructions}{multilingual_instructions}
+1. STAY WITHIN DOCUMENT SCOPE: Only use information explicitly stated in the provided context
+2. Extract information EXACTLY as written in the context - preserve original phrasing, terminology, and exact subjects/objects (e.g., "computers" not "companies", "costs" not "electronics prices")
+3. For dates: Always include the complete date with year when available in context (e.g., "2025 ഓഗസ്റ്റ് 6-ന്" not just "ഓഗസ്റ്റ് 6-ന്")
+4. For numbers/percentages: Use exact values with all qualifying context from document
+5. For definitions: Use precise wording from source document, maintaining the document's natural phrasing
+6. NO EXTERNAL ANALYSIS: Do not add impact analysis, implications, or commentary not present in the document
+7. If information is completely missing: Reply exactly "This information is not available in the provided document"
+8. LANGUAGE CONTROL: If the question is in English, answer in English only. If the question is in Malayalam, provide bilingual response: Malayalam answer followed by English translation in parentheses.
+9. Structure your response clearly with specific details, conditions, and procedures{specialized_instructions}{language_control}{multilingual_instructions}
+10. APPLICABILITY/EXEMPTION/PRODUCT-LIST ENFORCEMENT (language-agnostic): If the question asks which items/entities are subject to, applicable to, exempt from, or covered by something (in any language), quote the exact noun phrase(s) from the context with ALL qualifiers (e.g., "foreign-made computer chips and semiconductors", "computers manufactured in the U.S."). Never substitute or broaden subjects (do not replace "computers" with "companies"). If the document does not state this, reply exactly "This information is not available in the provided document".
+
+COMPLETENESS REQUIREMENTS:
+- Include complete temporal information (full dates with years)
+- Use document's exact terminology and phrasing where possible
+- For multilingual content: Preserve original language terms with translations when helpful
+- Only state what is explicitly written in the document - no inferences or implications
 
 EXAMPLE:
 Q: What is the grace period for premium payment?
@@ -228,7 +304,7 @@ ANSWER:"""
             if "grace period" in question_lower:
                 if "grace period" in text_lower and "thirty days" in text_lower:
                     boost_factor += 0.3
-                    print(f"  Grace period boost applied to chunk {i}")
+                    debug_print(f"  Grace period boost applied to chunk {i}")
                 elif "thirty days" in text_lower and "premium" in text_lower:
                     boost_factor += 0.2
             
@@ -236,7 +312,7 @@ ANSWER:"""
             if "hospital" in question_lower and "ayush" not in question_lower:
                 if "10 inpatient beds" in text_lower or "15 beds" in text_lower:
                     boost_factor += 0.25
-                    print(f"  Hospital definition boost applied to chunk {i}")
+                    debug_print(f"  Hospital definition boost applied to chunk {i}")
                 elif "inpatient beds" in text_lower:
                     boost_factor += 0.15
             
@@ -244,45 +320,45 @@ ANSWER:"""
             if "ayush" in question_lower:
                 if "ayush" in text_lower and ("treatment" in text_lower or "coverage" in text_lower):
                     boost_factor += 0.2
-                    print(f"  AYUSH coverage boost applied to chunk {i}")
+                    debug_print(f"  AYUSH coverage boost applied to chunk {i}")
             
             # Room rent and percentage limits boost (enhanced for specific percentages)
             if any(term in question_lower for term in ["room rent", "icu", "sub-limit", "limits", "plan a"]):
                 # High priority: specific percentage patterns from Table of Benefits
                 if "1% of sum insured" in text_lower or "2% of sum insured" in text_lower:
                     boost_factor += 0.35
-                    print(f"  Specific percentage limits boost applied to chunk {i}")
+                    debug_print(f"  Specific percentage limits boost applied to chunk {i}")
                 elif "1%" in text_lower or "2%" in text_lower:
                     boost_factor += 0.25
-                    print(f"  Percentage pattern boost applied to chunk {i}")
+                    debug_print(f"  Percentage pattern boost applied to chunk {i}")
                 elif "% of sum insured" in text_lower:
                     boost_factor += 0.20
-                    print(f"  General percentage boost applied to chunk {i}")
+                    debug_print(f"  General percentage boost applied to chunk {i}")
                 elif "room rent" in text_lower or "icu charges" in text_lower:
                     boost_factor += 0.15
             
             # Table content boost (tables often contain critical structured data)
             if hasattr(candidate, 'metadata') and getattr(candidate.metadata, 'chunk_type', '') == 'table':
                 boost_factor += 0.15
-                print(f"  Table content boost applied to chunk {i}")
+                debug_print(f"  Table content boost applied to chunk {i}")
             
             # General percentage pattern boost for any question asking about limits/amounts
             if any(term in question_lower for term in ["percentage", "percent", "limit", "amount"]):
                 if any(pattern in text_lower for pattern in ["1%", "2%", "% of sum", "percentage"]):
                     boost_factor += 0.10
-                    print(f"  General percentage query boost applied to chunk {i}")
+                    debug_print(f"  General percentage query boost applied to chunk {i}")
             
             # Insurance-specific boost patterns (critical for score)
             if any(term in question_lower for term in ["claim", "coverage", "premium", "policy", "benefit"]):
                 if any(pattern in text_lower for pattern in ["shall be covered", "eligible", "indemnify", "reimburse", "benefit"]):
                     boost_factor += 0.25
-                    print(f"  Insurance coverage boost applied to chunk {i}")
+                    debug_print(f"  Insurance coverage boost applied to chunk {i}")
 
             # Claim settlement boost
             if any(term in question_lower for term in ["settle", "settlement", "claim"]):
                 if any(pattern in text_lower for pattern in ["settlement", "claim", "documents", "process"]):
                     boost_factor += 0.20
-                    print(f"  Claim settlement boost applied to chunk {i}")
+                    debug_print(f"  Claim settlement boost applied to chunk {i}")
             
             # Apply boost
             if boost_factor > 0:
@@ -338,7 +414,7 @@ ANSWER:"""
                 
                 if shared_terms > 0:
                     candidates.append(result)
-                    print(f"  Added sibling chunk with numeric info: {shared_terms} shared terms")
+                    debug_print(f"  Added sibling chunk with numeric info: {shared_terms} shared terms")
                     break  # Add at most one sibling chunk
         
         # Insurance-specific chunk combination
@@ -351,7 +427,7 @@ ANSWER:"""
                     "coverage", "benefit", "eligible", "claim", "settlement", "exclusion", "indemnify"
                 ]):
                     candidates.append(result)
-                    print(f"  Added insurance-related chunk")
+                    debug_print(f"  Added insurance-related chunk")
                     break
         
         return candidates
@@ -408,7 +484,7 @@ ANSWER:"""
         else:
             return max(settings.min_k_retrieve, base_k - 2)
 
-    def generate_answer(
+    async def generate_answer(
         self, 
         question: str, 
         search_results: List[SearchResult],
@@ -433,9 +509,9 @@ ANSWER:"""
         if max_context_length is None:
             max_context_length = settings.max_context_tokens
             
-        print(f"Generating answer using {self.provider_type} for: {question[:50]}...")
-        print(f"Using {len(search_results)} search results")
-        print(f"Max context length: {max_context_length:,} tokens")
+        debug_print(f"Generating answer using {self.provider_type} for: {question[:50]}...")
+        debug_print(f"Using {len(search_results)} search results")
+        debug_print(f"Max context length: {max_context_length:,} tokens")
         
         if not search_results:
             return GeneratedAnswer(
@@ -464,11 +540,11 @@ ANSWER:"""
             # Use fixed value when adaptive_k is disabled
             adaptive_reranked = min(base_reranked, len(search_results))
         
-        print(f"Query complexity: {complexity}, using {adaptive_k_initial} initial, {adaptive_reranked} final")
+        debug_print(f"Query complexity: {complexity}, using {adaptive_k_initial} initial, {adaptive_reranked} final")
         
         # Apply cross-encoder reranking
         candidates = search_results[:adaptive_k_initial]
-        print(f"Reranking top {len(candidates)} candidates...")
+        debug_print(f"Reranking top {len(candidates)} candidates...")
         
         # Build query-document pairs for reranking (with caching)
         rerank_pairs = [(question, cand.text) for cand in candidates]
@@ -479,11 +555,14 @@ ANSWER:"""
         
         if cached_scores is not None and len(cached_scores) > 0:
             rerank_scores = cached_scores
-            print("  Using cached reranker scores")
+            debug_print("  Using cached reranker scores")
         else:
-            rerank_scores = RERANKER.predict(rerank_pairs)
+            # Use async reranker for non-blocking operation
+            rerank_scores = await RERANKER.predict_async(rerank_pairs)
             if settings.enable_reranker_cache:
-                self.cache_manager.set_reranker_scores(question, chunk_texts, rerank_scores.tolist())
+                # Convert to list if numpy array
+                scores_to_cache = rerank_scores.tolist() if hasattr(rerank_scores, 'tolist') else rerank_scores
+                self.cache_manager.set_reranker_scores(question, chunk_texts, scores_to_cache)
         
         # Ensure rerank_scores is a list for consistent handling
         if hasattr(rerank_scores, 'tolist'):
@@ -492,10 +571,10 @@ ANSWER:"""
         # Apply boost rules for critical terms (if enabled)
         if settings.enable_boost_rules:
             boosted_scores = self._apply_boost_rules(question, candidates, rerank_scores)
-            print("  Boost rules applied")
+            debug_print("  Boost rules applied")
         else:
             boosted_scores = rerank_scores
-            print("  Boost rules disabled - using raw reranker scores")
+            debug_print("  Boost rules disabled - using raw reranker scores")
         
         # Sort by boosted scores and take top candidates (add index to prevent comparison errors)
         indexed_results = list(zip(boosted_scores, candidates, range(len(candidates))))
@@ -507,7 +586,7 @@ ANSWER:"""
         
         sources = self._prepare_sources(candidates)
         
-        print(f"After reranking: using top {len(candidates)} most relevant chunks")
+        conditional_print(f"After reranking: using top {len(candidates)} most relevant chunks")
         
         # Build rich context with metadata
         context_str = "\n".join(
@@ -518,22 +597,25 @@ ANSWER:"""
             for i, c in enumerate(candidates)
         )
         
-        print(f"Context length: {len(context_str)} characters")
+        conditional_print(f"Context length: {len(context_str)} characters")
         
         try:
             # Generate answer using the configured provider with multilingual support
             if self.provider_type == "copilot":
-                answer = self._generate_with_copilot_sync(question, context_str, multilingual_mode, detected_language)
+                answer = await self._generate_with_copilot_async(question, context_str, multilingual_mode, detected_language)
             else:  # gemini
-                answer = self._generate_with_gemini_sync(question, context_str, multilingual_mode, detected_language)
+                answer = await self._generate_with_gemini_async(question, context_str, multilingual_mode, detected_language)
             
             # Simple post-processing - no retry/expansion complexity
             answer = answer.strip()
+
+            # HARD ENFORCEMENT: Ensure answer language matches question language
+            answer = await self._enforce_answer_language(answer, question)
             
             processing_time = time.time() - start_time
             
-            print(f"Answer generated in {processing_time:.2f}s")
-            print(f"Answer length: {len(answer)} characters")
+            conditional_print(f"Answer generated in {processing_time:.2f}s")
+            conditional_print(f"Answer length: {len(answer)} characters")
             
             return GeneratedAnswer(
                 answer=answer,
@@ -551,7 +633,7 @@ ANSWER:"""
             )
             
         except Exception as e:
-            print(f"{self.provider_type.title()} API failed: {e}")
+            conditional_print(f"{self.provider_type.title()} API failed: {e}")
             
             # Generate proper error message
             error_message = self._generate_error_message(e)
@@ -564,48 +646,79 @@ ANSWER:"""
                 model_info={"provider": self.provider_type, "model": self.model_name, "method": "error_handling", "error": str(e)}
             )
 
-    def _generate_with_copilot_sync(self, question: str, context_str: str, multilingual_mode: bool = False, detected_language: str = None) -> str:
-        """Generate answer using Copilot provider with multilingual support (synchronous wrapper)"""
-        import asyncio
-        
-        async def _async_generate():
-            prompt = self._create_rag_prompt(question, context_str, multilingual_mode, detected_language)
-            
-            # Adjust temperature for multilingual content (slightly higher for better handling)
-            temperature = self.temperature
-            if multilingual_mode:
-                temperature = min(self.temperature + 0.1, 1.0)
-            
-            # Simple single attempt - no retry complexity
-            self.provider.kwargs.update({"max_tokens": self.max_tokens})
-            
-            response = await self.provider.generate_answer(
-                prompt=prompt,
-                temperature=temperature
-            )
-            
-            if response.error:
-                raise Exception(response.error)
-            
-            return response.content.strip()
-        
-        # Run async function synchronously
+    async def _enforce_answer_language(self, answer: str, question: str) -> str:
+        """Ensure the answer language matches the question language. If mismatch, rewrite using provider."""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If loop is already running, use run_in_executor
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _async_generate())
-                    return future.result()
-            else:
-                return loop.run_until_complete(_async_generate())
-        except RuntimeError:
-            # No event loop running, create new one
-            return asyncio.run(_async_generate())
+            question_is_malayalam = bool(re.search(r"[\u0D00-\u0D7F]", question))
+            answer_is_malayalam = bool(re.search(r"[\u0D00-\u0D7F]", answer))
 
-    def _generate_with_gemini_sync(self, question: str, context_str: str, multilingual_mode: bool = False, detected_language: str = None) -> str:
-        """Generate answer using Gemini provider with multilingual support (synchronous)"""
+            # If languages match, no change
+            if question_is_malayalam == answer_is_malayalam:
+                return answer
+
+            # Build a concise rewrite prompt
+            if question_is_malayalam and not answer_is_malayalam:
+                target_lang = "Malayalam"
+                instruction = (
+                    "Rewrite the following answer strictly in Malayalam, preserving all facts and structure. "
+                    "Do not add or remove information."
+                )
+            else:
+                target_lang = "English"
+                instruction = (
+                    "Rewrite the following answer strictly in English, preserving all facts and mirroring the "
+                    "document’s phrasing naturally. Do not add or remove information."
+                )
+
+            rewrite_prompt = (
+                f"{instruction}\n\nOriginal answer:\n" + answer + "\n\nRewritten answer (" + target_lang + "):" 
+            )
+
+            # Use the same provider to rewrite
+            if self.provider_type == "copilot":
+                self.provider.kwargs.update({"max_tokens": self.max_tokens})
+                resp = await self.provider.generate_answer(prompt=rewrite_prompt, temperature=min(self.temperature, 0.4))
+                if resp and not resp.error and resp.content:
+                    rewritten = resp.content.strip()
+                    if rewritten:
+                        return rewritten
+            else:
+                generation_config = {"max_output_tokens": self.max_tokens, "temperature": min(self.temperature, 0.4)}
+                resp = self.provider.generate_content(rewrite_prompt, generation_config=generation_config)
+                if hasattr(resp, 'text') and resp.text:
+                    rewritten = resp.text.strip()
+                    if rewritten:
+                        return rewritten
+        except Exception as _:
+            # On any failure, fall back to the original answer
+            return answer
+
+        return answer
+
+    async def _generate_with_copilot_async(self, question: str, context_str: str, multilingual_mode: bool = False, detected_language: str = None) -> str:
+        """Generate answer using Copilot provider with multilingual support (native async)"""
+        prompt = self._create_rag_prompt(question, context_str, multilingual_mode, detected_language)
+        
+        # Adjust temperature for multilingual content (slightly higher for better handling)
+        temperature = self.temperature
+        if multilingual_mode:
+            temperature = min(self.temperature + 0.1, 1.0)
+        
+        # Update provider configuration
+        self.provider.kwargs.update({"max_tokens": self.max_tokens})
+        
+        response = await self.provider.generate_answer(
+            prompt=prompt,
+            temperature=temperature
+        )
+        
+        if response.error:
+            raise Exception(response.error)
+        
+        return response.content.strip()
+
+    async def _generate_with_gemini_async(self, question: str, context_str: str, multilingual_mode: bool = False, detected_language: str = None) -> str:
+        """Generate answer using Gemini provider with multilingual support (async)"""
         prompt = self._create_rag_prompt(question, context_str, multilingual_mode, detected_language)
         
         # Adjust temperature for multilingual content

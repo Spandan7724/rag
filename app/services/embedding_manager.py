@@ -65,16 +65,17 @@ class BGEEmbeddingProvider(EmbeddingProvider):
         self._model_lock = threading.Lock()  # Thread-safe model loading
         self._model_loaded = False  # Track model loading state
         
-        print(f"Initializing embedding manager: {self.model_name}")
-        print(f"Target device: {self.device}")
+        from app.utils.debug import debug_print, info_print
+        debug_print(f"Initializing embedding manager: {self.model_name}")
+        debug_print(f"Target device: {self.device}")
         
         # Check device availability
         if self.device == "cuda" and not torch.cuda.is_available():
-            print("CUDA not available, falling back to CPU")
+            debug_print("CUDA not available, falling back to CPU")
             self.device = "cpu"
         elif self.device == "cuda":
-            print(f"CUDA available: {torch.cuda.get_device_name()}")
-            print(f"CUDA memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+            debug_print(f"CUDA available: {torch.cuda.get_device_name()}")
+            debug_print(f"CUDA memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     
     def _load_model(self):
         """Thread-safe lazy load the BGE-M3 model"""
@@ -88,7 +89,8 @@ class BGEEmbeddingProvider(EmbeddingProvider):
                 return
             
             try:
-                print(f"Loading BGE-M3 model (thread-safe): {self.model_name}")
+                from app.utils.debug import debug_print, info_print
+                debug_print(f"Loading BGE-M3 model (thread-safe): {self.model_name}")
                 start_time = time.time()
                 
                 from FlagEmbedding import BGEM3FlagModel
@@ -101,18 +103,18 @@ class BGEEmbeddingProvider(EmbeddingProvider):
                 )
                 
                 load_time = time.time() - start_time
-                print(f"BGE-M3 model loaded successfully in {load_time:.2f}s")
+                info_print(f"BGE-M3 model loaded successfully in {load_time:.2f}s")
                 
                 # Warm up the model
-                print("Warming up model...")
+                debug_print("Warming up model...")
                 warmup_start = time.time()
                 self.model.encode(["This is a warmup text for the embedding model."])
                 warmup_time = time.time() - warmup_start
-                print(f"Model warmup completed in {warmup_time:.2f}s")
+                debug_print(f"Model warmup completed in {warmup_time:.2f}s")
                 
                 # Mark as loaded
                 self._model_loaded = True
-                print(f"BGE-M3 model ready for parallel processing!")
+                info_print(f"BGE-M3 model ready for parallel processing!")
                 
             except ImportError:
                 raise ImportError(
@@ -149,16 +151,17 @@ class BGEEmbeddingProvider(EmbeddingProvider):
         
         # Run in thread pool since BGE-M3 is CPU/GPU bound
         def _generate_embeddings():
+            from app.utils.debug import debug_print, info_print
             self._load_model()
             
-            print(f"Generating embeddings for {len(texts)} texts...")
+            debug_print(f"Generating embeddings for {len(texts)} texts...")
             start_time = time.time()
             
             try:
                 # Use BGE-M3's encode method
                 result = self.model.encode(
                     texts,
-                    batch_size=32,  # Process in batches for efficiency
+                    batch_size=settings.batch_embedding_size,  # Use configured batch size for efficiency
                     max_length=settings.max_tokens_per_chunk,  # BGE-M3 supports up to 8192 tokens
                     return_dense=True,  # We want dense embeddings for vector search
                     return_sparse=False,  # Don't need sparse embeddings for this use case
@@ -185,9 +188,9 @@ class BGEEmbeddingProvider(EmbeddingProvider):
                 embeddings = self._normalize_embeddings(embeddings)
                 
                 processing_time = time.time() - start_time
-                print(f"Generated embeddings in {processing_time:.2f}s")
-                print(f"Embedding shape: {embeddings.shape}")
-                print(f"Speed: {len(texts) / processing_time:.1f} texts/second")
+                debug_print(f"Generated embeddings in {processing_time:.2f}s")
+                debug_print(f"Embedding shape: {embeddings.shape}")
+                debug_print(f"Speed: {len(texts) / processing_time:.1f} texts/second")
                 
                 return EmbeddingResult(
                     embeddings=embeddings,
@@ -238,12 +241,12 @@ class BGEEmbeddingProvider(EmbeddingProvider):
             "processing_speed": len(chunks) / processing_time if processing_time > 0 else 0
         }
         
-        print(f"Chunk embedding completed:")
-        print(f"  - Chunks processed: {len(chunks)}")
-        print(f"  - Embedding dimension: {model_info['embedding_dimension']}")
-        print(f"  - Total tokens: {model_info['total_tokens']:,}")
-        print(f"  - Processing time: {processing_time:.2f}s")
-        print(f"  - Speed: {model_info['processing_speed']:.1f} chunks/second")
+        debug_print(f"Chunk embedding completed:")
+        debug_print(f"  - Chunks processed: {len(chunks)}")
+        debug_print(f"  - Embedding dimension: {model_info['embedding_dimension']}")
+        debug_print(f"  - Total tokens: {model_info['total_tokens']:,}")
+        debug_print(f"  - Processing time: {processing_time:.2f}s")
+        debug_print(f"  - Speed: {model_info['processing_speed']:.1f} chunks/second")
         
         return EmbeddingResult(
             embeddings=embeddings,
@@ -262,9 +265,10 @@ class BGEEmbeddingProvider(EmbeddingProvider):
             Numpy array of query embedding (1, embedding_dim)
         """
         def _generate_query_embedding():
+            from app.utils.debug import debug_print, info_print
             self._load_model()
             
-            print(f"Generating embedding for query: {query[:50]}...")
+            debug_print(f"Generating embedding for query: {query[:50]}...")
             start_time = time.time()
             
             try:
@@ -298,9 +302,9 @@ class BGEEmbeddingProvider(EmbeddingProvider):
                 embedding = self._normalize_embeddings(embedding)
                 
                 generation_time = time.time() - start_time
-                print(f"Generated query embedding in {generation_time:.2f}s")
-                print(f"Embedding shape: {embedding.shape}")
-                print(f"Speed: {1 / generation_time:.1f} queries/second")
+                debug_print(f"Generated query embedding in {generation_time:.2f}s")
+                debug_print(f"Embedding shape: {embedding.shape}")
+                debug_print(f"Speed: {1 / generation_time:.1f} queries/second")
                 
                 return embedding
                 

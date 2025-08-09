@@ -8,20 +8,21 @@ import pandas as pd
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import pymupdf as fitz  # PyMuPDF
+from app.utils.debug import conditional_print
 # Optional imports for advanced table extraction
 try:
     import camelot
     CAMELOT_AVAILABLE = True
 except ImportError:
     CAMELOT_AVAILABLE = False
-    print("Warning: camelot-py not available. Advanced table extraction disabled.")
+    conditional_print("Warning: camelot-py not available. Advanced table extraction disabled.")
 
 try:
     import tabula
     TABULA_AVAILABLE = True
 except ImportError:
     TABULA_AVAILABLE = False
-    print("Warning: tabula-py not available. Java-based table extraction disabled.")
+    conditional_print("Warning: tabula-py not available. Java-based table extraction disabled.")
 from io import StringIO
 import tempfile
 import os
@@ -201,27 +202,66 @@ class TableExtractor:
         """
         mappings = []
         
-        # Pattern 1: Look for emoji + landmark name + city patterns
-        # Example: 🏛️ Gateway of India Delhi
-        pattern1 = r'([🏛️🗼🕌🏖️🌉🏰❤️⛩️🌸👑🪨🏢🌞✨🗽🕰️🏟️🎭✝️🏙️🖼️🌊🪨🕍🏞️🗿⛪🛰️🌆]+)\s*([^🏛️🗼🕌🏖️🌉🏰❤️⛩️🌸👑🪨🏢🌞✨🗽🕰️🏟️🎭✝️🏙️🖼️🌊🪨🕍🏞️🗿⛪🛰️🌆]+?)\s+([A-Za-z\s]+?)(?=\n|$|[🏛️🗼🕌🏖️🌉🏰❤️⛩️🌸👑🪨🏢🌞✨🗽🕰️🏟️🎭✝️🏙️🖼️🌊🪨🕍🏞️🗿⛪🛰️🌆])'
+        print("Extracting landmark mappings from text...")
+        print(f"Text sample (first 500 chars): {text[:500]}")
         
-        matches = re.findall(pattern1, text, re.MULTILINE)
+        # Pattern 1: Handle emoji + landmark on one line, city on next line
+        # Example:
+        # 🏖️ Marina Beach
+        # Hyderabad  
+        pattern_newline = r'([🏛️🗼🕌🏖️🌉🏰❤️⛩️🌸👑🪨🏢🌞✨🗽🕰️🏟️🎭✝️🏙️🖼️🌊🪨🕍🏞️🗿⛪🛰️🌆]+)\s*([^\n🏛️🗼🕌🏖️🌉🏰❤️⛩️🌸👑🪨🏢🌞✨🗽🕰️🏟️🎭✝️🏙️🖼️🌊🪨🕍🏞️🗿⛪🛰️🌆]+)\n\s*([A-Za-z\s]+?)(?=\n|$)'
         
-        for emoji, landmark, city in matches:
+        newline_matches = re.findall(pattern_newline, text, re.MULTILINE)
+        print(f"Found {len(newline_matches)} newline pattern matches")
+        
+        for emoji, landmark, city in newline_matches:
             landmark = landmark.strip()
             city = city.strip()
+            print(f"Processing: {emoji} {landmark} -> {city}")
             
             # Validate landmark and city
             if self._is_valid_landmark(landmark) and self._is_valid_city(city):
                 category = "indian" if city in self.indian_cities else "international"
-                mappings.append(LandmarkMapping(
+                mapping = LandmarkMapping(
                     landmark=landmark,
                     current_city=city,
                     category=category,
                     emoji=emoji
-                ))
+                )
+                mappings.append(mapping)
+                print(f"Added mapping: {landmark} -> {city} ({category})")
+            else:
+                print(f"Skipped invalid mapping: {landmark} -> {city}")
         
-        # Pattern 2: Look for structured table-like text
+        # Pattern 2: Fallback - Look for emoji + landmark name + city patterns on same line
+        # Example: 🏛️ Gateway of India Delhi
+        pattern_sameline = r'([🏛️🗼🕌🏖️🌉🏰❤️⛩️🌸👑🪨🏢🌞✨🗽🕰️🏟️🎭✝️🏙️🖼️🌊🪨🕍🏞️🗿⛪🛰️🌆]+)\s*([^🏛️🗼🕌🏖️🌉🏰❤️⛩️🌸👑🪨🏢🌞✨🗽🕰️🏟️🎭✝️🏙️🖼️🌊🪨🕍🏞️🗿⛪🛰️🌆]+?)\s+([A-Za-z\s]+?)(?=\n|$|[🏛️🗼🕌🏖️🌉🏰❤️⛩️🌸👑🪨🏢🌞✨🗽🕰️🏟️🎭✝️🏙️🖼️🌊🪨🕍🏞️🗿⛪🛰️🌆])'
+        
+        sameline_matches = re.findall(pattern_sameline, text, re.MULTILINE)
+        print(f"Found {len(sameline_matches)} same-line pattern matches")
+        
+        for emoji, landmark, city in sameline_matches:
+            landmark = landmark.strip()
+            city = city.strip()
+            print(f"Processing same-line: {emoji} {landmark} -> {city}")
+            
+            # Check if we already have this mapping from newline pattern
+            if not any(m.landmark == landmark and m.current_city == city for m in mappings):
+                # Validate landmark and city
+                if self._is_valid_landmark(landmark) and self._is_valid_city(city):
+                    category = "indian" if city in self.indian_cities else "international"
+                    mapping = LandmarkMapping(
+                        landmark=landmark,
+                        current_city=city,
+                        category=category,
+                        emoji=emoji
+                    )
+                    mappings.append(mapping)
+                    print(f"Added same-line mapping: {landmark} -> {city} ({category})")
+                else:
+                    print(f"Skipped invalid same-line mapping: {landmark} -> {city}")
+        
+        # Pattern 3: Look for structured table-like text without emojis
         # Try to find landmark-city pairs in the text
         for landmark in self.landmark_keywords:
             pattern = rf'{re.escape(landmark)}\s+([A-Za-z\s]+)'
@@ -233,12 +273,15 @@ class TableExtractor:
                     category = "indian" if city in self.indian_cities else "international"
                     # Check if we already have this mapping
                     if not any(m.landmark == landmark and m.current_city == city for m in mappings):
-                        mappings.append(LandmarkMapping(
+                        mapping = LandmarkMapping(
                             landmark=landmark,
                             current_city=city,
                             category=category
-                        ))
+                        )
+                        mappings.append(mapping)
+                        print(f"Added keyword-based mapping: {landmark} -> {city} ({category})")
         
+        print(f"Total mappings extracted: {len(mappings)}")
         return mappings
     
     def extract_landmark_mappings_from_tables(self, tables: List[TableData]) -> List[LandmarkMapping]:
@@ -376,22 +419,24 @@ class TableExtractor:
         print(f"Total landmark mappings extracted: {len(all_mappings)}")
         return all_mappings
     
-    def create_lookup_dict(self, mappings: List[LandmarkMapping]) -> Dict[str, LandmarkMapping]:
+    def create_lookup_dict(self, mappings: List[LandmarkMapping]) -> Dict[str, List[LandmarkMapping]]:
         """
-        Create city -> landmark lookup dictionary
+        Create city -> landmarks lookup dictionary (supports multiple landmarks per city)
         
         Args:
             mappings: List of landmark mappings
             
         Returns:
-            Dictionary mapping city names to landmark mappings
+            Dictionary mapping city names to list of landmark mappings
         """
         lookup = {}
         
         for mapping in mappings:
             # Use lowercase city name as key for case-insensitive lookup
             city_key = mapping.current_city.lower()
-            lookup[city_key] = mapping
+            if city_key not in lookup:
+                lookup[city_key] = []
+            lookup[city_key].append(mapping)
         
         return lookup
 

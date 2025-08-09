@@ -6,6 +6,7 @@ import magic
 from dataclasses import dataclass
 from typing import Optional
 from pathlib import Path
+from app.utils.debug import conditional_print
 
 
 @dataclass
@@ -85,9 +86,9 @@ class FileTypeDetector:
         self.magic_detector = None
         try:
             self.magic_detector = magic.Magic(mime=True)
-            print("File type detector initialized with python-magic")
+            conditional_print("File type detector initialized with python-magic")
         except Exception as e:
-            print(f"Warning: python-magic not available, falling back to mimetypes: {e}")
+            conditional_print(f"Warning: python-magic not available, falling back to mimetypes: {e}")
     
     def detect_file_type(self, file_data: bytes, filename: str = "") -> DetectedFileType:
         """

@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
 from app.core.config import settings
+from app.utils.debug import debug_print, info_print
 
 
 @dataclass
@@ -29,6 +30,11 @@ class TextChunk:
     preservation_reason: Optional[str] = None    # Why this chunk was preserved intact
     has_definitions: bool = False                # Whether chunk contains definition patterns
     table_structure: Optional[Dict[str, Any]] = None  # Table metadata if applicable
+    
+    # Multilingual support
+    translated_text: Optional[str] = None        # English translation of this chunk
+    source_language: str = "english"            # Source language of the chunk
+    has_translation: bool = False               # Whether chunk has translation available
 
 
 class TextChunker:
@@ -318,17 +324,17 @@ class TextChunker:
         Returns:
             List of TextChunk objects with enhanced semantic metadata
         """
-        print(f"Starting semantic text chunking...")
-        print(f"Document length: {len(text):,} characters")
-        print(f"Target: {self.max_tokens} tokens per chunk with {self.overlap_tokens} token overlap")
+        debug_print(f"Starting semantic text chunking...")
+        debug_print(f"Document length: {len(text):,} characters")
+        debug_print(f"Target: {self.max_tokens} tokens per chunk with {self.overlap_tokens} token overlap")
         
         # Extract structural elements
         page_map = self.extract_page_numbers(text)
         headers = self.detect_section_headers(text)
         preserve_sections = self.preserve_definitions(text, headers)  # FIXED: Actually use this!
         
-        print(f"Detected {len(headers)} section headers")
-        print(f"Found {len(preserve_sections)} sections to preserve intact")
+        debug_print(f"Detected {len(headers)} section headers")
+        debug_print(f"Found {len(preserve_sections)} sections to preserve intact")
         
         chunks = []
         chunk_id = 0
@@ -354,9 +360,9 @@ class TextChunker:
                     chunks.append(chunk)
                     processed_ranges.update(range(start, end))
                     chunk_id += 1
-                    print(f"Preserved definition chunk: {reason[:50]}...")
+                    debug_print(f"Preserved definition chunk: {reason[:50]}...")
                 else:
-                    print(f"Warning: Preserved section too large ({token_count} tokens), will be split")
+                    debug_print(f"Warning: Preserved section too large ({token_count} tokens), will be split")
         
         # Step 2: Process remaining text by sections using recursive chunking
         section_ranges = self._get_section_ranges(headers, len(text))
@@ -411,9 +417,9 @@ class TextChunker:
         for chunk in chunks:
             chunk_types[chunk.chunk_type] = chunk_types.get(chunk.chunk_type, 0) + 1
         
-        print(f"Semantic chunking completed:")
-        print(f"  - Total chunks: {len(chunks)}")
-        print(f"  - Average tokens per chunk: {avg_tokens:.1f}")
+        info_print(f"Semantic chunking completed:")
+        debug_print(f"  - Total chunks: {len(chunks)}")
+        debug_print(f"  - Average tokens per chunk: {avg_tokens:.1f}")
         print(f"  - Chunk types: {dict(chunk_types)}")
         print(f"  - Preserved definitions: {chunk_types.get('definition', 0)}")
         print(f"  - Table chunks: {chunk_types.get('table', 0)}")

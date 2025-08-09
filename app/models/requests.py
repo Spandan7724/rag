@@ -14,8 +14,11 @@ class QueryRequest(BaseModel):
     @field_validator('documents')
     @classmethod
     def validate_documents(cls, v: str) -> str:
-        """Validate that documents is either a valid URL, file path, or upload file ID"""
-        if v.startswith('file://'):
+        """Validate that documents is either a valid URL, file path, upload file ID, or special web scraping placeholder"""
+        # Special case for web scraping requests without documents
+        if v == 'web-scraping://no-document':
+            return v
+        elif v.startswith('file://'):
             # For file:// URLs, just ensure the path exists and is readable
             file_path = v[7:]  # Remove 'file://' prefix
             if not file_path:
@@ -33,7 +36,7 @@ class QueryRequest(BaseModel):
                 HttpUrl(v)
                 return v
             except Exception:
-                raise ValueError('documents must be a valid HTTP URL, file:// path, or upload:// file ID')
+                raise ValueError('documents must be a valid HTTP URL, file:// path, upload:// file ID, or web-scraping://no-document for web scraping requests')
     
     class Config:
         json_schema_extra = {

@@ -19,6 +19,7 @@ from app.services.web_client import WebClient, fetch_web_content
 from app.core.security import verify_token
 from app.core.config import settings
 from app.core.directories import get_directory_manager
+from app.utils.debug import debug_print, info_print
 
 router = APIRouter()
 
@@ -73,15 +74,21 @@ async def process_queries(
         rag_coordinator = get_rag_coordinator()
         question_logger = get_question_logger()
         
-        # Step 1: Process document (with automatic caching)
-        print(f"Processing document: {request.documents}")
-        print(f"Using embedding provider: {settings.embedding_provider}")
-        doc_start_time = time.time()
-        doc_result = await rag_coordinator.process_document(
-            url=str(request.documents)
-        )
-        doc_processing_time = time.time() - doc_start_time
-        doc_id = doc_result["doc_id"]
+        # Step 1: Process document (with automatic caching) or skip for web scraping
+        if str(request.documents) == 'web-scraping://no-document':
+            debug_print("Skipping document processing for web scraping request")
+            doc_id = None
+            doc_processing_time = 0.0
+            doc_result = {"status": "skipped_for_web_scraping", "doc_id": None}
+        else:
+            debug_print(f"Processing document: {request.documents}")
+            debug_print(f"Using embedding provider: {settings.embedding_provider}")
+            doc_start_time = time.time()
+            doc_result = await rag_coordinator.process_document(
+                url=str(request.documents)
+            )
+            doc_processing_time = time.time() - doc_start_time
+            doc_id = doc_result["doc_id"]
         
         # Start question logging session
         session_metadata = {
@@ -94,20 +101,38 @@ async def process_queries(
         
         session_id = question_logger.start_session(
             document_url=str(request.documents),
-            doc_id=doc_id,
+            doc_id=doc_id or "web-scraping-request",
             metadata=session_metadata
         )
         
         if doc_result["status"] == "cached":
-            print(f"Using cached document: {doc_id}")
+            info_print(f"Using cached document: {doc_id}")
+        elif doc_result["status"] == "skipped_for_web_scraping":
+            info_print("Skipped document processing for web scraping request")
+        elif doc_result["status"] == "token_api_detected":
+            info_print(f"Token API endpoint detected: {doc_result.get('api_url', 'unknown')}")
+            # For token API endpoints, we'll process the questions differently
+            # The questions will be processed as web scraping requests
         else:
-            print(f"Processed new document: {doc_id}")
-            print(f"  - Processing time: {doc_result['processing_time']:.2f}s")
-            print(f"  - Chunks created: {doc_result['document_stats']['chunk_count']}")
-            print(f"  - Preserved definitions: {doc_result['document_stats']['preserved_definitions']}")
+            info_print(f"Processed new document: {doc_id}")
+            info_print(f"  - Processing time: {doc_result['processing_time']:.2f}s")
+            
+            # Handle different processing pipeline results
+            if doc_result.get("pipeline_used") == "direct_processing":
+                debug_print(f"  - Document type: {doc_result.get('document_type', 'unknown')}")
+                if "landmark_mappings" in doc_result:
+                    debug_print(f"  - Landmark mappings: {doc_result['landmark_mappings']['total_landmarks']}")
+                    debug_print(f"  - Cities covered: {doc_result['landmark_mappings']['cities_covered']}")
+            elif "document_stats" in doc_result:
+                # Traditional RAG pipeline results
+                doc_stats = doc_result["document_stats"]
+                if "chunk_count" in doc_stats:
+                    debug_print(f"  - Chunks created: {doc_stats['chunk_count']}")
+                if "preserved_definitions" in doc_stats:
+                    debug_print(f"  - Preserved definitions: {doc_stats['preserved_definitions']}")
         
         # Step 2: Pre-warm embedding model for parallel processing
-        print(f"Pre-warming embedding model for parallel processing...")
+        debug_print(f"Pre-warming embedding model for parallel processing...")
         embedding_warmup_start = time.time()
         
         # Ensure the embedding model is loaded before parallel processing
@@ -118,30 +143,39 @@ async def process_queries(
             )
         
         embedding_warmup_time = time.time() - embedding_warmup_start
-        print(f"Embedding model ready in {embedding_warmup_time:.2f}s")
+        debug_print(f"Embedding model ready in {embedding_warmup_time:.2f}s")
         
-        # Step 3: Answer each question (PARALLEL PROCESSING)
-        print(f"Processing {len(request.questions)} questions in parallel")
+        # Step 3: Answer all questions with batch optimization (OPTIMIZED PARALLEL PROCESSING)
+        info_print(f"Processing {len(request.questions)} questions with batch optimization")
         
         questions_start_time = time.time()
         
-        # Create async tasks for all questions
-        async def process_single_question(i: int, question: str):
-            print(f"  Question {i+1}: {question}")  # Log full question instead of truncated
-            
-            # Use RAG pipeline to answer question with query transformation support
-            rag_response = await rag_coordinator.answer_question_async(
+        # Handle token API detection - modify questions to include the URL for web scraping
+        questions_to_process = list(request.questions)
+        if doc_result["status"] == "token_api_detected":
+            api_url = doc_result.get("api_url", "")
+            info_print(f"Modifying questions to include token API URL: {api_url}")
+            # Modify questions to include the URL for proper web scraping detection
+            questions_to_process = [f"{q} {api_url}" for q in request.questions]
+        
+        # Process questions individually for reliable challenge detection and consistent results
+        rag_responses = []
+        for i, question in enumerate(questions_to_process):
+            debug_print(f"Processing question {i+1}/{len(questions_to_process)}: {question[:50]}...")
+            response = await rag_coordinator.answer_question(
                 question=question,
                 doc_id=doc_id,
-                k_retrieve=settings.k_retrieve,  # Use config value for consistency
-                max_context_length=settings.max_context_tokens,  # Use full context window from config
-                enable_transformation=request.enable_query_transformation  # Use request parameter
+                k_retrieve=settings.k_retrieve,
+                max_context_length=settings.max_context_tokens
             )
-            
-            print(f"    Question {i+1} answered in {rag_response.processing_time:.2f}s")
-            print(f"    Used {len(rag_response.sources_used)} sources")
-            if rag_response.query_transformation and rag_response.query_transformation.get('successful'):
-                print(f"    Query transformation: {len(rag_response.query_transformation['sub_queries'])} sub-queries")
+            rag_responses.append(response)
+            debug_print(f"  Question {i+1} completed in {response.processing_time:.2f}s")
+        
+        # Log each question and response
+        for i, (question, rag_response) in enumerate(zip(request.questions, rag_responses)):
+            debug_print(f"  Question {i+1}: {question}")
+            debug_print(f"    Answered in {rag_response.processing_time:.2f}s")
+            debug_print(f"    Used {len(rag_response.sources_used)} sources")
             
             # Log question and response
             try:
@@ -164,25 +198,7 @@ async def process_queries(
                     error=None
                 )
             except Exception as log_error:
-                print(f"Warning: Failed to log question {i+1}: {log_error}")
-            
-            return rag_response
-        
-        # Create semaphore to limit concurrent questions
-        semaphore = asyncio.Semaphore(settings.max_concurrent_questions)
-        
-        async def process_with_semaphore(i: int, question: str):
-            async with semaphore:
-                return await process_single_question(i, question)
-        
-        # Process all questions concurrently with limits
-        tasks = [
-            process_with_semaphore(i, question) 
-            for i, question in enumerate(request.questions)
-        ]
-        
-        # Wait for all questions to complete
-        rag_responses = await asyncio.gather(*tasks)
+                debug_print(f"Warning: Failed to log question {i+1}: {log_error}")
         
         # Extract answers, sources, timing info, and transformation metadata
         answers = [response.answer for response in rag_responses]
@@ -202,32 +218,32 @@ async def process_queries(
         sequential_time_estimate = sum(individual_times)  # What it would have taken sequentially
         parallel_speedup = sequential_time_estimate / questions_processing_time if questions_processing_time > 0 else 1
         
-        print(f"\n" + "="*70)
-        print(f"PARALLEL PROCESSING COMPLETED - PERFORMANCE METRICS")
-        print(f"="*70)
-        print(f"Document Processing Time: {doc_processing_time:.2f}s")
-        print(f"Embedding Model Warmup: {embedding_warmup_time:.2f}s")
-        print(f"Questions Processing Time: {questions_processing_time:.2f}s (PARALLEL)")
-        print(f"Total Processing Time: {total_processing_time:.2f}s")
+        info_print(f"\n" + "="*70)
+        info_print(f"PARALLEL PROCESSING COMPLETED - PERFORMANCE METRICS")
+        info_print(f"="*70)
+        info_print(f"Document Processing Time: {doc_processing_time:.2f}s")
+        info_print(f"Embedding Model Warmup: {embedding_warmup_time:.2f}s")
+        info_print(f"Questions Processing Time: {questions_processing_time:.2f}s (PARALLEL)")
+        info_print(f"Total Processing Time: {total_processing_time:.2f}s")
         
-        print(f"\nPARALLEL PROCESSING BENEFITS:")
-        print(f"  - Parallel Time: {questions_processing_time:.2f}s")
-        print(f"  - Concurrent Questions Limit: {settings.max_concurrent_questions}")
+        debug_print(f"\nPARALLEL PROCESSING BENEFITS:")
+        debug_print(f"  - Parallel Time: {questions_processing_time:.2f}s")
+        debug_print(f"  - Concurrent Questions Limit: {settings.max_concurrent_questions}")
         
-        print(f"\nQuestion-by-Question Breakdown:")
+        debug_print(f"\nQuestion-by-Question Breakdown:")
         for i, q_time in enumerate(individual_times, 1):
-            print(f"  Question {i}: {q_time:.2f}s")
-        print(f"\nQuestions Statistics:")
-        print(f"  - Total Questions: {len(request.questions)}")
-        print(f"  - Average Time per Question: {sum(individual_times) / len(individual_times):.2f}s")
-        print(f"  - Fastest Question: {min(individual_times):.2f}s")
-        print(f"  - Slowest Question: {max(individual_times):.2f}s")
-        print(f"  - Effective Questions per Second: {len(request.questions) / questions_processing_time:.2f}")
+            debug_print(f"  Question {i}: {q_time:.2f}s")
+        debug_print(f"\nQuestions Statistics:")
+        debug_print(f"  - Total Questions: {len(request.questions)}")
+        debug_print(f"  - Average Time per Question: {sum(individual_times) / len(individual_times):.2f}s")
+        debug_print(f"  - Fastest Question: {min(individual_times):.2f}s")
+        debug_print(f"  - Slowest Question: {max(individual_times):.2f}s")
+        debug_print(f"  - Effective Questions per Second: {len(request.questions) / questions_processing_time:.2f}")
         
-        print(f"\nQuery Transformation Statistics:")
-        print(f"  - Transformations Enabled: {request.enable_query_transformation if request.enable_query_transformation is not None else settings.enable_query_transformation}")
-        print(f"  - Questions with Successful Transformation: {transformations_successful}/{len(request.questions)}")
-        print(f"="*70)
+        debug_print(f"\nQuery Transformation Statistics:")
+        debug_print(f"  - Transformations Enabled: {request.enable_query_transformation if request.enable_query_transformation is not None else settings.enable_query_transformation}")
+        debug_print(f"  - Questions with Successful Transformation: {transformations_successful}/{len(request.questions)}")
+        info_print(f"="*70)
         
         # Create processing summary
         processing_summary = {
@@ -263,7 +279,7 @@ async def process_queries(
                 session_metadata=session_end_metadata
             )
         except Exception as log_error:
-            print(f"Warning: Failed to end question logging session: {log_error}")
+            debug_print(f"Warning: Failed to end question logging session: {log_error}")
         
         return SimpleQueryResponse(
             answers=answers
@@ -272,7 +288,7 @@ async def process_queries(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"RAG pipeline error: {str(e)}")
+        info_print(f"RAG pipeline error: {str(e)}")
         
         # Log error in question logging if session was started
         try:
@@ -294,7 +310,7 @@ async def process_queries(
                     session_metadata={"error": str(e), "status": "failed"}
                 )
         except Exception as log_error:
-            print(f"Failed to log error: {log_error}")
+            debug_print(f"Failed to log error: {log_error}")
         
         raise HTTPException(
             status_code=500,
@@ -524,7 +540,7 @@ async def upload_file_and_query(
             elif enable_query_transformation.lower() in ['false', '0', 'no']:
                 transformation_enabled = False
         
-        print(f"Using embedding provider from config: {settings.embedding_provider}")
+        debug_print(f"Using embedding provider from config: {settings.embedding_provider}")
         
         file_manager = get_file_manager()
         rag_coordinator = get_rag_coordinator()
@@ -543,9 +559,9 @@ async def upload_file_and_query(
             )
             doc_id = doc_result["doc_id"]
             
-            print(f"Processed uploaded document: {file_info.original_filename}")
-            print(f"  - File ID: {file_info.file_id}")
-            print(f"  - Document ID: {doc_id}")
+            info_print(f"Processed uploaded document: {file_info.original_filename}")
+            debug_print(f"  - File ID: {file_info.file_id}")
+            debug_print(f"  - Document ID: {doc_id}")
             
             # Start question logging session for uploaded file
             session_metadata = {
@@ -599,7 +615,7 @@ async def upload_file_and_query(
                         error=None
                     )
                 except Exception as log_error:
-                    print(f"Warning: Failed to log question {i}: {log_error}")
+                    debug_print(f"Warning: Failed to log question {i}: {log_error}")
             
             # Calculate statistics
             transformations_successful = sum(1 for qt in query_transformations 
@@ -614,9 +630,9 @@ async def upload_file_and_query(
                 "embedding_dimension": query_transformations[0].get("model_info", {}).get("embedding_dimension", "unknown") if query_transformations and query_transformations[0] else "unknown"
             }
             
-            print(f"Answered {len(questions_list)} questions for uploaded file")
+            info_print(f"Answered {len(questions_list)} questions for uploaded file")
             if transformations_successful > 0:
-                print(f"  - {transformations_successful} questions used query transformation")
+                debug_print(f"  - {transformations_successful} questions used query transformation")
             
             # End question logging session
             try:
@@ -634,7 +650,7 @@ async def upload_file_and_query(
                     session_metadata=session_end_metadata
                 )
             except Exception as log_error:
-                print(f"Warning: Failed to end upload question logging session: {log_error}")
+                debug_print(f"Warning: Failed to end upload question logging session: {log_error}")
             
             return SimpleQueryResponse(
                 answers=answers
@@ -643,7 +659,7 @@ async def upload_file_and_query(
         finally:
             # Clean up uploaded file after processing
             file_manager.remove_file(file_info.file_id)
-            print(f"Cleaned up uploaded file: {file_info.file_id}")
+            debug_print(f"Cleaned up uploaded file: {file_info.file_id}")
         
     except HTTPException:
         raise

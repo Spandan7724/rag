@@ -2,7 +2,7 @@
 Application configuration
 """
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Optional, List
 
 class Settings(BaseSettings):
     # API Configuration
@@ -86,16 +86,25 @@ class Settings(BaseSettings):
     adaptive_k: bool = False  # Disable adaptive k - use fixed values for simplicity
     min_k_retrieve: int = 20  # Minimum chunks to retrieve
     max_k_retrieve: int = 40  # Reduced for faster processing
-    similarity_threshold: float = 1.2  # Maximum L2 distance to include chunks (lower = more similar)
+    similarity_threshold: float = 1.5  # Maximum L2 distance to include chunks (significantly increased for multilingual matching)
     # For normalized embeddings: L2=0.0 (identical), L2=0.7 (~85% similar), L2=1.0 (~75% similar), L2=1.4 (~50% similar)
     top_k_reranked: int = 7  # Slightly reduced for faster reranking
     enable_boost_rules: bool = False  # Disable boost rules - too complex and brittle
     
+    # Multilingual Retrieval Configuration
+    multilingual_k_retrieve: int = 50  # Increased k for cross-language semantic matching
+    multilingual_similarity_threshold: float = 1.4  # More lenient threshold for multilingual content
+    multilingual_chunk_overlap: int = 150  # Increased overlap for better context preservation
+    enable_multilingual_enhancement: bool = True  # Enable enhanced multilingual processing
+    
     # Performance Optimization Configuration
+    debug_mode: bool = False  # Enable verbose debug logging (impacts performance)
     enable_result_caching: bool = False  # Cache query results for faster responses
     cache_ttl_seconds: int = 3600  # Cache time-to-live (1 hour)
-    enable_embedding_cache: bool = False  # Cache embeddings for repeated chunks
-    enable_reranker_cache: bool = False  # Cache reranker scores
+    enable_embedding_cache: bool = True  # Cache embeddings for repeated chunks
+    enable_reranker_cache: bool = True  # Cache reranker scores
+    enable_answer_cache: bool = True  # Cache complete answers for specific documents
+    cacheable_document_ids: List[str] = ["334ef1720708"]  # Only cache answers for News.pdf
     max_concurrent_requests: int = 4  # Limit concurrent API calls
     max_concurrent_questions: int = 2  # Max questions to process in parallel
     api_timeout_seconds: int = 50  # Balanced timeout for comprehensive responses
@@ -104,13 +113,13 @@ class Settings(BaseSettings):
     
     # Model Optimization
 
-    batch_embedding_size: int = 32  # Batch size for embedding generation
+    batch_embedding_size: int = 128  # Batch size for embedding generation (increased for throughput)
     gpu_memory_limit: Optional[str] = None  # Auto-detect GPU memory limit (remove artificial constraints)
 
     # LLM Configuration
     llm_provider: str = "copilot"  # Options: "gemini", "copilot"
-    llm_model: str = "gpt-4.1-2025-04-14"  # Model for answer generation #gpt-4.1-2025-04-14 #gemini-1.5-flash-latest
-    gemini_api_key: str = ""  # Set via environment variable GEMINI_API_KEY
+    llm_model: str = "claude-sonnet-4"  # Model for answer generation #gpt-4.1-2025-04-14 #gemini-1.5-flash-latest
+    gemini_api_key: str = ""  # Set via environment variable G  EMINI_API_KEY
     copilot_access_token: str = ""  # Set via environment variable COPILOT_ACCESS_TOKEN
     llm_max_tokens: int = 2048  # Increased for comprehensive insurance analysis with metadata
     llm_temperature: float = 0.2  # Lower temperature for more factual, precise responses
