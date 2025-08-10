@@ -50,6 +50,8 @@ class DocumentInfo:
     chunk_count: int
     indexed_at: float
     total_tokens: int
+    document_type: str = "unknown"
+    type_confidence: float = 0.0
 
 
 class VectorStore:
@@ -197,6 +199,8 @@ class VectorStore:
             "chunk_count": doc_info.chunk_count,
             "indexed_at": doc_info.indexed_at,
             "total_tokens": doc_info.total_tokens,
+            "document_type": doc_info.document_type,
+            "type_confidence": doc_info.type_confidence,
             "storage_size_mb": self._estimate_storage_size() / 1024 / 1024
         }
     
@@ -300,7 +304,9 @@ class VectorStore:
             pages=document_metadata.get("pages", 0),
             chunk_count=len(chunks),
             indexed_at=time.time(),
-            total_tokens=sum(chunk.token_count for chunk in chunks)
+            total_tokens=sum(chunk.token_count for chunk in chunks),
+            document_type=document_metadata.get("document_type", "unknown"),
+            type_confidence=document_metadata.get("type_confidence", 0.0)
         )
         
         # Save to disk

@@ -10,6 +10,7 @@ class QueryRequest(BaseModel):
     documents: str  # Accept HTTP URLs, file:// paths, or upload file IDs
     questions: List[str]
     enable_query_transformation: Optional[bool] = None  # Override global transformation setting
+    use_universal_solver: Optional[bool] = False  # Enable Universal LLM Solver for pure LLM-driven reasoning
     
     @field_validator('documents')
     @classmethod

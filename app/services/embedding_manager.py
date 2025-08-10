@@ -10,7 +10,7 @@ import logging
 from typing import List, Dict, Any, Optional, Protocol
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-
+from app.utils.debug import debug_print, info_print
 from app.services.text_chunker import TextChunk
 from app.core.config import settings
 
@@ -311,8 +311,22 @@ class BGEEmbeddingProvider(EmbeddingProvider):
             except Exception as e:
                 raise RuntimeError(f"Query embedding generation failed: {str(e)}")
         
-        # Execute directly - BGE-M3 is GPU-optimized
-        return _generate_query_embedding()
+        # PERFORMANCE OPTIMIZATION: Check LRU cache first (CRITICAL FOR LATENCY)
+        from app.services.lru_cache_manager import get_lru_cache_manager
+        cache_manager = get_lru_cache_manager()
+        
+        cached_embedding = cache_manager.get_query_embedding(query)
+        if cached_embedding is not None:
+            # LRU Cache hit - return immediately (MAJOR LATENCY REDUCTION)
+            return cached_embedding
+        
+        # Generate new embedding
+        embedding = _generate_query_embedding()
+        
+        # Cache the result for future use with LRU eviction
+        cache_manager.set_query_embedding(query, embedding)
+        
+        return embedding
     
     def get_embedding_dimension(self) -> int:
         """Get the embedding dimension for BGE-M3"""
@@ -483,7 +497,7 @@ class EmbeddingManager:
     
     async def encode_query(self, query: str) -> np.ndarray:
         """
-        Generate embedding for a query (backward compatibility method)
+        Generate embedding for a query with caching (backward compatibility method)
         
         Args:
             query: Query string
@@ -491,7 +505,19 @@ class EmbeddingManager:
         Returns:
             Query embedding array
         """
-        return await self._provider.embed_query(query)
+        # PERFORMANCE OPTIMIZATION: Manager-level LRU caching check (CRITICAL FOR LATENCY)
+        from app.services.lru_cache_manager import get_lru_cache_manager
+        cache_manager = get_lru_cache_manager()
+        
+        cached_embedding = cache_manager.get_query_embedding(query)
+        if cached_embedding is not None:
+            return cached_embedding
+        
+        # Generate and cache with LRU eviction
+        embedding = await self._provider.embed_query(query)
+        cache_manager.set_query_embedding(query, embedding)
+        
+        return embedding
     
     def ensure_model_ready(self) -> bool:
         """

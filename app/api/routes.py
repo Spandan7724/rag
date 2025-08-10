@@ -15,6 +15,7 @@ from app.services.rag_coordinator import get_rag_coordinator
 from app.services.file_manager import get_file_manager
 from app.services.question_logger import get_question_logger
 from app.services.challenge_solver import get_challenge_solver, solve_hackrx_challenge
+from app.services.universal_llm_solver import get_universal_llm_solver
 from app.services.web_client import WebClient, fetch_web_content
 from app.core.security import verify_token
 from app.core.config import settings
@@ -162,11 +163,14 @@ async def process_queries(
         rag_responses = []
         for i, question in enumerate(questions_to_process):
             debug_print(f"Processing question {i+1}/{len(questions_to_process)}: {question[:50]}...")
+            if request.use_universal_solver:
+                debug_print(f"  Using Universal LLM Solver for question {i+1}")
             response = await rag_coordinator.answer_question(
                 question=question,
                 doc_id=doc_id,
                 k_retrieve=settings.k_retrieve,
-                max_context_length=settings.max_context_tokens
+                max_context_length=settings.max_context_tokens,
+                use_universal_solver=request.use_universal_solver or False
             )
             rag_responses.append(response)
             debug_print(f"  Question {i+1} completed in {response.processing_time:.2f}s")
@@ -841,6 +845,102 @@ async def cleanup_question_logs(token: str = Depends(verify_token)):
         raise HTTPException(
             status_code=500,
             detail=f"Question log cleanup failed: {str(e)}"
+        )
+
+
+@router.post("/universal-solver", response_model=SimpleQueryResponse)
+async def universal_llm_solver(
+    request: QueryRequest,
+    token: str = Depends(verify_token)
+):
+    """
+    Universal LLM Solver endpoint for pure LLM-driven reasoning
+    
+    This endpoint bypasses traditional challenge detection and uses
+    the Universal LLM Solver for all questions, providing pure
+    LLM-driven reasoning with web scraping capabilities.
+    """
+    try:
+        start_time = time.time()
+        
+        rag_coordinator = get_rag_coordinator()
+        universal_solver = get_universal_llm_solver()
+        
+        # Force use of Universal LLM Solver
+        debug_print("Using Universal LLM Solver for all questions")
+        debug_print(f"Processing {len(request.questions)} questions")
+        
+        # Get document content if provided
+        document_content = ""
+        doc_id = None
+        
+        if request.documents and request.documents != 'web-scraping://no-document':
+            debug_print(f"Processing document: {request.documents}")
+            doc_result = await rag_coordinator.process_document(url=str(request.documents))
+            doc_id = doc_result.get("doc_id")
+            
+            # Try to get complete document text
+            if doc_id:
+                complete_text = rag_coordinator._get_complete_document_text(doc_id)
+                if complete_text:
+                    document_content = complete_text
+                    debug_print(f"Using complete document text ({len(document_content)} chars)")
+        
+        # Process questions with Universal LLM Solver
+        answers = []
+        processing_times = []
+        
+        for i, question in enumerate(request.questions):
+            debug_print(f"Processing question {i+1}/{len(request.questions)}: {question[:50]}...")
+            
+            question_start_time = time.time()
+            
+            result = await universal_solver.solve(
+                question=question,
+                document_content=document_content,
+                context={
+                    "doc_id": doc_id,
+                    "document_url": request.documents
+                }
+            )
+            
+            question_time = time.time() - question_start_time
+            processing_times.append(question_time)
+            
+            if result.success:
+                answers.append(result.answer)
+                debug_print(f"  Question {i+1} completed in {question_time:.2f}s")
+                if result.api_calls_made:
+                    debug_print(f"  API calls made: {', '.join(result.api_calls_made)}")
+            else:
+                answers.append(f"Processing failed: {result.error}")
+                debug_print(f"  Question {i+1} failed in {question_time:.2f}s: {result.error}")
+        
+        total_time = time.time() - start_time
+        
+        debug_print(f"\nUniversal LLM Solver completed:")
+        debug_print(f"  - Total time: {total_time:.2f}s")
+        debug_print(f"  - Average per question: {sum(processing_times)/len(processing_times):.2f}s")
+        debug_print(f"  - Questions processed: {len(request.questions)}")
+        
+        return SimpleQueryResponse(
+            answers=answers,
+            processing_time=total_time,
+            total_questions=len(request.questions),
+            avg_time_per_question=sum(processing_times) / len(processing_times),
+            processing_metadata={
+                "solver_type": "universal_llm_solver",
+                "document_provided": bool(document_content),
+                "document_length": len(document_content),
+                "individual_times": processing_times,
+                "llm_driven": True
+            }
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Universal LLM Solver failed: {str(e)}"
         )
 
 

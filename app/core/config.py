@@ -100,11 +100,10 @@ class Settings(BaseSettings):
     # Performance Optimization Configuration
     debug_mode: bool = False  # Enable verbose debug logging (impacts performance)
     enable_result_caching: bool = False  # Cache query results for faster responses
-    cache_ttl_seconds: int = 3600  # Cache time-to-live (1 hour)
+    cache_ttl_seconds: int = 36000  # Cache time-to-live (10 hours)
     enable_embedding_cache: bool = True  # Cache embeddings for repeated chunks
     enable_reranker_cache: bool = True  # Cache reranker scores
-    enable_answer_cache: bool = True  # Cache complete answers for specific documents
-    cacheable_document_ids: List[str] = ["334ef1720708"]  # Only cache answers for News.pdf
+    enable_answer_cache: bool = True  # Cache complete answers for semantic search documents only
     max_concurrent_requests: int = 4  # Limit concurrent API calls
     max_concurrent_questions: int = 2  # Max questions to process in parallel
     api_timeout_seconds: int = 50  # Balanced timeout for comprehensive responses

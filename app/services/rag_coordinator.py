@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional, Set, Tuple
 from dataclasses import dataclass
 import logging
 import re
+import hashlib
 
 from app.utils.debug import debug_print, info_print, conditional_print
 
@@ -16,10 +17,11 @@ from app.services.text_chunker import get_text_chunker, TextChunk
 from app.services.embedding_manager import get_embedding_manager
 from app.services.vector_store import get_vector_store, SearchResult
 from app.services.enhanced_answer_generator import get_enhanced_answer_generator as get_answer_generator
-from app.services.cache_manager import get_cache_manager
+from app.services.lru_cache_manager import get_lru_cache_manager
 from app.services.query_transformer import get_query_transformer, QueryTransformationResult
 from app.services.challenge_detector import get_challenge_detector, ChallengeType
 from app.services.challenge_solver import get_challenge_solver
+from app.services.universal_llm_solver import get_universal_llm_solver
 from app.services.web_client import WebClient
 from app.services.document_type_detector import get_document_type_detector, DocumentType
 from app.services.direct_processor import get_direct_processor
@@ -53,7 +55,7 @@ class RAGCoordinator:
         self.embedding_manager = get_embedding_manager()
         self.vector_store = get_vector_store()
         self.answer_generator = get_answer_generator()
-        self.cache_manager = get_cache_manager()
+        self.cache_manager = get_lru_cache_manager()
         self.query_transformer = get_query_transformer()
         self.challenge_detector = get_challenge_detector()
         self.document_type_detector = get_document_type_detector()
@@ -61,6 +63,7 @@ class RAGCoordinator:
         
         # Initialize challenge solver (lazy loaded when needed)
         self._challenge_solver = None
+        self.universal_solver = get_universal_llm_solver()
         
         # Single embedding manager based on config
         
@@ -133,6 +136,8 @@ class RAGCoordinator:
             conditional_print(f"Document type detected: {type_result.document_type.value} "
                   f"(confidence: {type_result.confidence:.2f})")
             conditional_print(f"Suggested pipeline: {type_result.suggested_pipeline}")
+            debug_print(f"Document type metadata: {type_result.metadata}")
+            debug_print(f"Document type patterns detected: {type_result.detected_patterns}")
             
             # Route to appropriate processing pipeline
             if type_result.suggested_pipeline == "direct_processing":
@@ -258,11 +263,13 @@ class RAGCoordinator:
             # Stage 4: Add to vector store with translation metadata
             stage_start = time.time()
             
-            # Prepare enhanced document metadata with translation info
+            # Prepare enhanced document metadata with translation info and document type
             enhanced_doc_metadata = {
                 **processed_doc.metadata,
                 "has_translation": processed_doc.translated_text is not None,
-                "detected_language": processed_doc.detected_language
+                "detected_language": processed_doc.detected_language,
+                "document_type": type_result.document_type.value,
+                "type_confidence": type_result.confidence
             }
             
             vector_result = self.vector_store.add_document(
@@ -484,7 +491,8 @@ class RAGCoordinator:
         doc_id: Optional[str] = None,
         k_retrieve: int = 10,
         max_context_length: int = None,
-        enable_transformation: Optional[bool] = None  # Keep for compatibility but ignore
+        enable_transformation: Optional[bool] = None,  # Keep for compatibility but ignore
+        use_universal_solver: bool = False  # NEW: Enable Universal LLM Solver
     ) -> RAGResponse:
         """
         Intelligent question answering with automatic challenge detection and caching
@@ -495,22 +503,41 @@ class RAGCoordinator:
             k_retrieve: Number of chunks to retrieve
             max_context_length: Maximum context length for answer generation (None = use config default)
             enable_transformation: Ignored - no transformation used
+            use_universal_solver: Enable Universal LLM Solver for pure LLM-driven reasoning
             
         Returns:
             RAGResponse with answer and metadata including challenge detection
         """
         start_time = time.time()
         
-        # Check answer cache first - only for configured cacheable documents
-        should_cache = (settings.enable_answer_cache and doc_id and 
-                       any(cacheable_id in str(doc_id) for cacheable_id in settings.cacheable_document_ids))
+        # Check answer cache first - only for SEMANTIC_SEARCH documents
+        should_cache = False
+        if settings.enable_answer_cache and doc_id:
+            doc_info = self.vector_store.get_document_info(doc_id)
+            debug_print(f"Cache check - doc_info: {doc_info}")
+            if doc_info:
+                doc_type = doc_info.get("document_type")
+                debug_print(f"Document type for caching: {doc_type}")
+                if doc_type == "semantic_search":
+                    should_cache = True
+                    debug_print(f"Caching enabled for document {doc_id} (type: {doc_type})")
+                else:
+                    debug_print(f"Caching disabled for document {doc_id} (type: {doc_type})")
+            else:
+                debug_print(f"No document info found for {doc_id}")
+        else:
+            debug_print(f"Cache check skipped - enable_answer_cache: {settings.enable_answer_cache}, doc_id: {doc_id}")
         
         if should_cache:
-            cache_key = f"qa:{doc_id}:{hash(question)}:{k_retrieve}:{max_context_length}"
+            # Normalize cache key to ignore retrieval parameters for better cache hit rate  
+            normalized_question = question.lower().strip()
+            # Use MD5 hash for consistent cache keys across server restarts
+            hash_value = hashlib.md5(normalized_question.encode()).hexdigest()[:16]
+            cache_key = f"qa:{doc_id}:{hash_value}"
             cached_response = await self.cache_manager.get_answer_cache(cache_key)
             
             if cached_response:
-                print(f"✅ Cache hit for News.pdf question: {question[:50]}...")
+                print(f"Cache hit for semantic search document question: {question[:50]}...")
                 # Update processing time to reflect cache retrieval
                 cached_response.processing_time = time.time() - start_time
                 return cached_response
@@ -558,7 +585,12 @@ class RAGCoordinator:
             # Step 3: Route to appropriate handler based on challenge type
             special_processing = None
             
-            if primary_challenge.challenge_type == ChallengeType.GEOGRAPHIC_PUZZLE and primary_challenge.confidence > 0.6:
+            # NEW: Universal LLM Solver option - enabled via parameter
+            if use_universal_solver:
+                # Use Universal LLM Solver for any challenge type
+                return await self._handle_universal_llm_solver(question, doc_id, document_content, start_time, challenge_info)
+            
+            elif primary_challenge.challenge_type == ChallengeType.GEOGRAPHIC_PUZZLE and primary_challenge.confidence > 0.6:
                 # Use geographic challenge solver
                 return await self._handle_geographic_challenge(question, doc_id, start_time, challenge_info)
             
@@ -729,13 +761,13 @@ class RAGCoordinator:
                 special_processing=special_processing
             )
             
-            # Cache the response for future use - ONLY for News.pdf document
+            # Cache the response for future use - ONLY for semantic search documents
             if should_cache:
                 try:
                     await self.cache_manager.set_answer_cache(cache_key, response)
-                    print(f"📝 Cached News.pdf answer for future requests")
+                    print(f"Cached semantic search answer for future requests")
                 except Exception as e:
-                    print(f"⚠ Warning: Failed to cache answer: {e}")
+                    print(f"Warning: Failed to cache answer: {e}")
             
             return response
             
@@ -830,6 +862,75 @@ class RAGCoordinator:
             # Fallback to standard RAG
             return await self._fallback_to_standard_rag(question, doc_id, start_time, challenge_info, f"Geographic challenge failed: {e}")
     
+    async def _handle_universal_llm_solver(
+        self, 
+        question: str, 
+        doc_id: str, 
+        document_content: str, 
+        start_time: float, 
+        challenge_info: Dict[str, Any]
+    ) -> RAGResponse:
+        """Handle any challenge using Universal LLM Solver"""
+        conditional_print("Using Universal LLM Solver...")
+        
+        try:
+            # Prepare context for Universal LLM Solver
+            context = {
+                "doc_id": doc_id,
+                "challenge_info": challenge_info
+            }
+            
+            # Call Universal LLM Solver
+            result = await self.universal_solver.solve(
+                question=question,
+                document_content=document_content,
+                context=context
+            )
+            
+            total_time = time.time() - start_time
+            
+            if result.success:
+                answer = result.answer
+                
+                special_processing = {
+                    "solver_type": "universal_llm_solver",
+                    "reasoning": result.reasoning,
+                    "api_calls_made": result.api_calls_made or [],
+                    "processing_approach": "llm_driven_reasoning"
+                }
+                
+                sources_used = [{
+                    "type": "universal_solver",
+                    "content_preview": document_content[:200] + "..." if len(document_content) > 200 else document_content,
+                    "solver_confidence": "high" if result.success else "low"
+                }]
+                
+            else:
+                # Fallback to standard RAG if Universal Solver fails
+                conditional_print("Universal LLM Solver failed, falling back to standard RAG...")
+                return await self._fallback_to_standard_rag(
+                    question, doc_id, start_time, challenge_info, f"Universal solver failed: {result.error}"
+                )
+            
+            return RAGResponse(
+                answer=answer,
+                processing_time=total_time,
+                doc_id=doc_id,
+                sources_used=sources_used,
+                pipeline_stats={
+                    "universal_solver_time": result.processing_time,
+                    "total_time": total_time,
+                    "solver_type": "universal_llm",
+                    "api_calls": len(result.api_calls_made) if result.api_calls_made else 0
+                },
+                challenge_detection=challenge_info,
+                special_processing=special_processing
+            )
+            
+        except Exception as e:
+            conditional_print(f"Universal LLM Solver failed: {e}")
+            return await self._fallback_to_standard_rag(question, doc_id, start_time, challenge_info, f"Universal solver exception: {e}")
+    
     async def _handle_flight_request(self, question: str, doc_id: str, start_time: float, challenge_info: Dict[str, Any]) -> RAGResponse:
         """Handle direct flight number requests"""
         conditional_print("Handling flight number request...")
@@ -879,7 +980,6 @@ class RAGCoordinator:
         conditional_print("Handling secret token request...")
         
         try:
-            from app.services.web_client import WebClient
             import re
             
             # Extract team ID from the URL in the question
@@ -949,7 +1049,6 @@ class RAGCoordinator:
         conditional_print("Handling web scraping request...")
         
         try:
-            from app.services.web_client import WebClient
             import re
             
             # Extract URL from question if present
@@ -1180,7 +1279,8 @@ class RAGCoordinator:
         questions: List[str],
         doc_id: Optional[str] = None,
         k_retrieve: int = None,
-        max_context_length: int = None
+        max_context_length: int = None,
+        use_universal_solver: bool = False
     ) -> List[RAGResponse]:
         """
         Process multiple questions individually for reliable challenge detection
@@ -1193,6 +1293,7 @@ class RAGCoordinator:
             doc_id: Optional document ID to filter by  
             k_retrieve: Number of chunks to retrieve per query
             max_context_length: Maximum context length for answer generation
+            use_universal_solver: Enable Universal LLM Solver for all questions
             
         Returns:
             List of RAGResponse objects
@@ -1216,7 +1317,8 @@ class RAGCoordinator:
                 question=question,
                 doc_id=doc_id,
                 k_retrieve=k_retrieve,
-                max_context_length=max_context_length
+                max_context_length=max_context_length,
+                use_universal_solver=use_universal_solver
             )
             
             responses.append(response)
