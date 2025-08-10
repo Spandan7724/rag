@@ -1,16 +1,17 @@
 """
-Enhanced answer generator supporting multiple LLM providers (Gemini + Copilot)
+Enhanced answer generator using GitHub Copilot for answer generation
 """
 import time
 import threading
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 import re
 
 from sentence_transformers import CrossEncoder
 from app.services.vector_store import SearchResult
-from app.services.copilot_provider import get_copilot_provider, CopilotResponse
+from app.services.copilot_provider import get_copilot_provider
+from app.services.openai_provider import get_openai_provider
 from app.services.cache_manager import get_cache_manager
 from app.core.config import Settings, settings
 from app.utils.debug import debug_print, conditional_print
@@ -109,10 +110,10 @@ class GeneratedAnswer:
     model_info: Dict[str, Any]
 
 class EnhancedAnswerGenerator:
-    """Enhanced answer generator supporting multiple LLM providers"""
+    """Enhanced answer generator using GitHub Copilot"""
 
     def __init__(self):
-        """Initialize answer generator with configured provider"""
+        """Initialize answer generator with GitHub Copilot provider"""
         self.provider_type = settings.llm_provider
         self.model_name = settings.llm_model
         self.temperature = settings.llm_temperature
@@ -121,13 +122,15 @@ class EnhancedAnswerGenerator:
         
         conditional_print(f"Initializing enhanced answer generator: {self.provider_type} - {self.model_name}")
         
-        # Initialize the appropriate provider
+        # Initialize LLM provider
         if self.provider_type == "copilot":
             self._init_copilot_provider()
-        elif self.provider_type == "gemini":
-            self._init_gemini_provider()
+        elif self.provider_type == "openai":
+            self._init_openai_provider()
         else:
-            raise ValueError(f"Unsupported LLM provider: {self.provider_type}")
+            conditional_print(f"Warning: Provider '{self.provider_type}' not supported, using Copilot")
+            self.provider_type = "copilot"
+            self._init_copilot_provider()
         
         # Pre-warm reranker model for optimal performance
         self._pre_warm_reranker()
@@ -155,23 +158,18 @@ class EnhancedAnswerGenerator:
             conditional_print(f"✗ Failed to initialize Copilot provider: {e}")
             raise
     
-    def _init_gemini_provider(self):
-        """Initialize Gemini provider (fallback to existing implementation)"""
+    def _init_openai_provider(self):
+        """Initialize OpenAI provider"""
         try:
-            import google.generativeai as genai
-            
-            api_key = settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
-            if not api_key:
-                raise ValueError("No Gemini API key configured")
-            
-            genai.configure(api_key=api_key)
-            self.provider = genai.GenerativeModel(self.model_name)
-            conditional_print(f"✓ Gemini provider initialized: {self.model_name}")
-        except ImportError:
-            raise ImportError("google-generativeai not installed. Install with: pip install google-generativeai")
+            self.provider = get_openai_provider(
+                model=self.model_name,
+                max_tokens=self.max_tokens
+            )
+            conditional_print(f"✓ OpenAI provider initialized: {self.model_name}")
         except Exception as e:
-            conditional_print(f"✗ Failed to initialize Gemini provider: {e}")
+            conditional_print(f"✗ Failed to initialize OpenAI provider: {e}")
             raise
+    
     
     def _prepare_sources(self, search_results: List[SearchResult]) -> List[Dict[str, Any]]:
         """Prepare source information from search results"""
@@ -427,7 +425,7 @@ ANSWER:"""
                     "coverage", "benefit", "eligible", "claim", "settlement", "exclusion", "indemnify"
                 ]):
                     candidates.append(result)
-                    debug_print(f"  Added insurance-related chunk")
+                    debug_print("  Added insurance-related chunk")
                     break
         
         return candidates
@@ -603,8 +601,11 @@ ANSWER:"""
             # Generate answer using the configured provider with multilingual support
             if self.provider_type == "copilot":
                 answer = await self._generate_with_copilot_async(question, context_str, multilingual_mode, detected_language)
-            else:  # gemini
-                answer = await self._generate_with_gemini_async(question, context_str, multilingual_mode, detected_language)
+            elif self.provider_type == "openai":
+                answer = await self._generate_with_openai_async(question, context_str, multilingual_mode, detected_language)
+            else:
+                # Fallback to copilot if unknown provider
+                answer = await self._generate_with_copilot_async(question, context_str, multilingual_mode, detected_language)
             
             # Simple post-processing - no retry/expansion complexity
             answer = answer.strip()
@@ -675,7 +676,7 @@ ANSWER:"""
             )
 
             # Use the same provider to rewrite
-            if self.provider_type == "copilot":
+            if self.provider_type in ["copilot", "openai"]:
                 self.provider.kwargs.update({"max_tokens": self.max_tokens})
                 resp = await self.provider.generate_answer(prompt=rewrite_prompt, temperature=min(self.temperature, 0.4))
                 if resp and not resp.error and resp.content:
@@ -717,32 +718,28 @@ ANSWER:"""
         
         return response.content.strip()
 
-    async def _generate_with_gemini_async(self, question: str, context_str: str, multilingual_mode: bool = False, detected_language: str = None) -> str:
-        """Generate answer using Gemini provider with multilingual support (async)"""
+    async def _generate_with_openai_async(self, question: str, context_str: str, multilingual_mode: bool = False, detected_language: str = None) -> str:
+        """Generate answer using OpenAI provider with multilingual support (native async)"""
         prompt = self._create_rag_prompt(question, context_str, multilingual_mode, detected_language)
         
-        # Adjust temperature for multilingual content
+        # Adjust temperature for multilingual content (slightly higher for better handling)
         temperature = self.temperature
         if multilingual_mode:
             temperature = min(self.temperature + 0.1, 1.0)
         
-        # Generation config for comprehensive answers with multilingual support
-        generation_config = {
-            "max_output_tokens": self.max_tokens,
-            "temperature": temperature
-        }
+        # Update provider configuration
+        self.provider.kwargs.update({"max_tokens": self.max_tokens})
         
-        # Generate response
-        response = self.provider.generate_content(prompt, generation_config=generation_config)
+        response = await self.provider.generate_answer(
+            prompt=prompt,
+            temperature=temperature
+        )
         
-        # Extract full answer (no truncation)
-        if hasattr(response, 'text'):
-            answer = response.text.strip()
-        else:
-            answer = str(response).strip()
+        if response.error:
+            raise Exception(response.error)
         
-        # Return full response
-        return answer
+        return response.content.strip()
+
 
     def _generate_error_message(self, error: Exception) -> str:
         """Generate clear error message based on the type of error"""
@@ -757,11 +754,15 @@ ANSWER:"""
                 return "ERROR: GitHub Copilot access forbidden. Please verify your Copilot subscription is active."
             elif "rate limit" in error_str:
                 return "ERROR: GitHub Copilot rate limit exceeded. Please try again later."
-        else:  # gemini
-            if "api key" in error_str or "invalid key" in error_str:
-                return "ERROR: Invalid Gemini API key. Please check your GEMINI_API_KEY environment variable and ensure it's valid."
+        elif self.provider_type == "openai":
+            if "openai_api_key" in error_str or "authentication" in error_str:
+                return "ERROR: No OpenAI API key configured. Please set the OPENAI_API_KEY environment variable and restart the application."
+            elif "forbidden" in error_str or "insufficient" in error_str:
+                return "ERROR: OpenAI access forbidden. Please verify your API key and quota."
+            elif "rate limit" in error_str:
+                return "ERROR: OpenAI rate limit exceeded. Please wait and try again."
             elif "quota" in error_str:
-                return "ERROR: Gemini API quota exceeded. Please try again later or check your API usage limits."
+                return "ERROR: OpenAI quota exceeded. Please check your usage and billing."
         
         # Generic error handling
         if any(keyword in error_str for keyword in ['connection', 'network', 'timeout', 'unreachable']):
@@ -791,8 +792,8 @@ ANSWER:"""
         """Get API key for compatibility with health check"""
         if self.provider_type == "copilot":
             return os.getenv("COPILOT_ACCESS_TOKEN", "")
-        elif self.provider_type == "gemini":
-            return os.getenv("GEMINI_API_KEY", "")
+        elif self.provider_type == "openai":
+            return os.getenv("OPENAI_API_KEY", "")
         return ""
 
 

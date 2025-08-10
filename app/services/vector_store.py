@@ -5,8 +5,7 @@ import faiss
 import numpy as np
 import pickle
 import json
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
 import time
 
@@ -176,7 +175,7 @@ class VectorStore:
                 doc_dicts = {doc_id: asdict(doc_info) for doc_id, doc_info in self.documents.items()}
                 json.dump(doc_dicts, f, indent=2)
                 
-            debug_print(f"Vector store saved to disk")
+            debug_print("Vector store saved to disk")
             
         except Exception as e:
             debug_print(f"Warning: Failed to save vector store: {e}")
@@ -347,7 +346,7 @@ class VectorStore:
         if self.index is None or self.index.ntotal == 0:
             return []
         
-        debug_print(f"Searching vector store...")
+        debug_print("Searching vector store...")
         debug_print(f"  - Query embedding shape: {query_embedding.shape}")
         debug_print(f"  - Requesting {k} results")
         if doc_id_filter:
@@ -390,7 +389,6 @@ class VectorStore:
                 continue
             
             # Apply similarity threshold filter (for L2 distance, smaller = more similar)
-            from app.core.config import settings
             if float(similarity) > settings.similarity_threshold:
                 continue  # Skip chunks that are too dissimilar
             

@@ -8,10 +8,9 @@ import aiohttp
 import time
 import json
 import re
-from typing import Optional, Dict, Any, List, Union, Tuple
+from typing import Optional, Dict, Any, List, Union
 from dataclasses import dataclass, field
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse, parse_qs
 
 
 @dataclass

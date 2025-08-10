@@ -71,7 +71,7 @@ class PDFExtractor(BaseExtractor):
             # Final processing
             processing_time = time.time() - start_time
             
-            print(f"PDF processing completed:")
+            print("PDF processing completed:")
             print(f"  - Total pages: {len(page_texts)}")
             print(f"  - Text length: {len(all_text)} characters")
             print(f"  - Processing time: {processing_time:.2f}s")

@@ -6,12 +6,11 @@ Handles web scraping, API integration, and HTML content extraction for HackRX ch
 import asyncio
 import aiohttp
 import time
-from typing import Optional, Dict, Any, List, Union
+from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
 import json
 import re
-from urllib.parse import urljoin, urlparse
 
 @dataclass
 class WebResponse:
@@ -102,7 +101,7 @@ class WebClient:
                         error=None if response.status < 400 else f"HTTP {response.status}"
                     )
                     
-            except asyncio.TimeoutError as e:
+            except asyncio.TimeoutError:
                 last_error = f"Timeout after {self.timeout.total}s"
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff

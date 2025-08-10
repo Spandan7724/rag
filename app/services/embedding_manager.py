@@ -1,16 +1,15 @@
 """
-Multi-provider embedding service supporting BGE-M3 and Gemini embeddings
+BGE-M3 embedding service for RAG systems
 """
 import time
 import threading
 import torch
 import numpy as np
-import asyncio
 import logging
-from typing import List, Dict, Any, Optional, Protocol
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from app.utils.debug import debug_print, info_print
+from app.utils.debug import debug_print
 from app.services.text_chunker import TextChunk
 from app.core.config import settings
 
@@ -65,7 +64,7 @@ class BGEEmbeddingProvider(EmbeddingProvider):
         self._model_lock = threading.Lock()  # Thread-safe model loading
         self._model_loaded = False  # Track model loading state
         
-        from app.utils.debug import debug_print, info_print
+        from app.utils.debug import debug_print
         debug_print(f"Initializing embedding manager: {self.model_name}")
         debug_print(f"Target device: {self.device}")
         
@@ -114,7 +113,7 @@ class BGEEmbeddingProvider(EmbeddingProvider):
                 
                 # Mark as loaded
                 self._model_loaded = True
-                info_print(f"BGE-M3 model ready for parallel processing!")
+                info_print("BGE-M3 model ready for parallel processing!")
                 
             except ImportError:
                 raise ImportError(
@@ -151,7 +150,7 @@ class BGEEmbeddingProvider(EmbeddingProvider):
         
         # Run in thread pool since BGE-M3 is CPU/GPU bound
         def _generate_embeddings():
-            from app.utils.debug import debug_print, info_print
+            from app.utils.debug import debug_print
             self._load_model()
             
             debug_print(f"Generating embeddings for {len(texts)} texts...")
@@ -241,7 +240,7 @@ class BGEEmbeddingProvider(EmbeddingProvider):
             "processing_speed": len(chunks) / processing_time if processing_time > 0 else 0
         }
         
-        debug_print(f"Chunk embedding completed:")
+        debug_print("Chunk embedding completed:")
         debug_print(f"  - Chunks processed: {len(chunks)}")
         debug_print(f"  - Embedding dimension: {model_info['embedding_dimension']}")
         debug_print(f"  - Total tokens: {model_info['total_tokens']:,}")
@@ -265,7 +264,7 @@ class BGEEmbeddingProvider(EmbeddingProvider):
             Numpy array of query embedding (1, embedding_dim)
         """
         def _generate_query_embedding():
-            from app.utils.debug import debug_print, info_print
+            from app.utils.debug import debug_print
             self._load_model()
             
             debug_print(f"Generating embedding for query: {query[:50]}...")
@@ -359,57 +358,21 @@ class BGEEmbeddingProvider(EmbeddingProvider):
         }
 
 
-class GeminiEmbeddingAdapter(EmbeddingProvider):
-    """Adapter for Gemini embeddings to match the EmbeddingProvider interface"""
-    
-    def __init__(self):
-        """Initialize Gemini embedding adapter"""
-        from app.services.gemini_embeddings import get_gemini_embedding_provider
-        self._provider = get_gemini_embedding_provider()
-        logger.info("Initialized Gemini embedding adapter")
-    
-    async def embed_texts(self, texts: List[str]) -> EmbeddingResult:
-        """Generate embeddings using Gemini API"""
-        gemini_result = await self._provider.embed_documents(texts)
-        
-        # Convert to EmbeddingResult format
-        return EmbeddingResult(
-            embeddings=gemini_result.embeddings,
-            processing_time=gemini_result.processing_time,
-            model_info=gemini_result.model_info
-        )
-    
-    async def embed_query(self, query: str) -> np.ndarray:
-        """Generate query embedding using Gemini API"""
-        return await self._provider.embed_query(query)
-    
-    def get_embedding_dimension(self) -> int:
-        """Get embedding dimension from Gemini provider"""
-        return self._provider.get_embedding_dimension()
-    
-    def get_model_info(self) -> Dict[str, Any]:
-        """Get model info from Gemini provider"""
-        return self._provider.get_model_info()
-    
-    def is_available(self) -> bool:
-        """Check if Gemini provider is available"""
-        return self._provider.is_available()
-
 
 class EmbeddingManager:
     """
-    Multi-provider embedding manager supporting BGE-M3 and Gemini embeddings
+    BGE-M3 embedding manager for RAG systems
     
-    This class acts as a factory and provides a unified interface for different
-    embedding providers while maintaining backward compatibility.
+    This class provides a unified interface for BGE-M3 embeddings while maintaining
+    backward compatibility with the existing codebase.
     """
     
     def __init__(self, provider: Optional[str] = None):
         """
-        Initialize embedding manager with specified provider
+        Initialize embedding manager with BGE-M3 provider
         
         Args:
-            provider: Optional provider name override
+            provider: Optional provider name (only "bge-m3" supported)
         """
         self.provider_name = provider or settings.embedding_provider
         self._provider: Optional[EmbeddingProvider] = None
@@ -420,32 +383,22 @@ class EmbeddingManager:
         self._init_provider()
     
     def _init_provider(self):
-        """Initialize the selected embedding provider"""
+        """Initialize the BGE-M3 embedding provider"""
         try:
-            if self.provider_name == "gemini":
-                self._provider = GeminiEmbeddingAdapter()
-                logger.info("Using Gemini embeddings")
-            elif self.provider_name == "bge-m3":
+            if self.provider_name == "bge-m3":
                 self._provider = BGEEmbeddingProvider()
                 logger.info("Using BGE-M3 embeddings")
             else:
-                raise ValueError(f"Unknown embedding provider: {self.provider_name}")
+                logger.warning(f"Unknown provider '{self.provider_name}', falling back to BGE-M3")
+                self.provider_name = "bge-m3"
+                self._provider = BGEEmbeddingProvider()
             
             # Validate provider is available
             if not self._provider.is_available():
-                logger.error(f"Provider {self.provider_name} is not available")
-                # Fallback to BGE-M3 if Gemini fails
-                if self.provider_name == "gemini":
-                    logger.info("Falling back to BGE-M3 embeddings")
-                    self.provider_name = "bge-m3"
-                    self._provider = BGEEmbeddingProvider()
-                    if not self._provider.is_available():
-                        raise RuntimeError("No embedding providers available")
-                else:
-                    raise RuntimeError(f"Provider {self.provider_name} is not available")
+                raise RuntimeError("BGE-M3 provider is not available")
         
         except Exception as e:
-            logger.error(f"Failed to initialize provider {self.provider_name}: {str(e)}")
+            logger.error(f"Failed to initialize BGE-M3 provider: {str(e)}")
             raise
     
     async def encode_texts(self, texts: List[str]) -> np.ndarray:
@@ -486,7 +439,7 @@ class EmbeddingManager:
             "processing_speed": len(chunks) / result.processing_time if result.processing_time > 0 else 0
         })
         
-        logger.info(f"Chunk embedding completed:")
+        logger.info("Chunk embedding completed:")
         logger.info(f"  - Chunks processed: {len(chunks)}")
         logger.info(f"  - Embedding dimension: {result.embeddings.shape[1] if result.embeddings.size > 0 else 0}")
         logger.info(f"  - Total tokens: {sum(chunk.token_count for chunk in chunks):,}")

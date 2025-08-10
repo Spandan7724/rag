@@ -3,7 +3,7 @@ Word document extractor for .docx and .doc files
 """
 import time
 import io
-from typing import List, Dict, Any
+from typing import List
 from .base_extractor import BaseExtractor, ExtractionResult
 
 
@@ -119,7 +119,7 @@ class WordExtractor(BaseExtractor):
             except Exception:
                 pass  # Ignore metadata extraction errors
             
-            print(f"Word (.docx) processing completed:")
+            print("Word (.docx) processing completed:")
             print(f"  - Paragraphs: {paragraph_count}")
             print(f"  - Tables: {table_count}")
             print(f"  - Text length: {len(all_text)} characters")
@@ -172,10 +172,10 @@ class WordExtractor(BaseExtractor):
                             'note': 'Legacy .doc format - limited extraction capabilities'
                         }
                         
-                        print(f"Word (.doc) processing completed:")
+                        print("Word (.doc) processing completed:")
                         print(f"  - Text length: {len(all_text)} characters") 
                         print(f"  - Processing time: {processing_time:.2f}s")
-                        print(f"  - Note: Legacy format with limited extraction")
+                        print("  - Note: Legacy format with limited extraction")
                         
                         return ExtractionResult(
                             text=all_text,

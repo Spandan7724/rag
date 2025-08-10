@@ -2,13 +2,12 @@
 """
 Universal LLM Solver - Let the LLM decide EVERYTHING
 """
-import asyncio
 import time
 import json
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from app.services.enhanced_answer_generator import get_enhanced_answer_generator
-from app.services.universal_web_client import UniversalWebClient, ExtractionRule
+from app.services.universal_web_client import UniversalWebClient
 from app.services.cache_manager import get_cache_manager
 
 

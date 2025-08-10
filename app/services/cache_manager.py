@@ -5,7 +5,7 @@ import hashlib
 import json
 import time
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from app.core.config import settings
 from app.utils.debug import conditional_print
 

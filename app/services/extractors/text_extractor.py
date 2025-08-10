@@ -4,7 +4,7 @@ Text file extractor for .txt, .csv, and other plain text formats
 import time
 import io
 import csv
-from typing import List, Dict, Any
+from typing import List
 from .base_extractor import BaseExtractor, ExtractionResult
 
 
@@ -91,7 +91,7 @@ class TextExtractor(BaseExtractor):
                 'extractor': 'text_decoder'
             }
             
-            print(f"Plain text processing completed:")
+            print("Plain text processing completed:")
             print(f"  - Encoding: {encoding_used}")
             print(f"  - Lines: {len(non_empty_lines)}/{len(lines)}")
             print(f"  - Characters: {len(text_content)}")
@@ -182,7 +182,7 @@ class TextExtractor(BaseExtractor):
                 'note': note
             }
             
-            print(f"CSV processing completed:")
+            print("CSV processing completed:")
             print(f"  - Format: {extension.upper()}")
             print(f"  - Encoding: {encoding_used}")
             print(f"  - Delimiter: {repr(delimiter)}")

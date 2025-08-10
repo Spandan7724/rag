@@ -4,7 +4,7 @@ Challenge Detector Service
 Intelligently detects different types of challenges and routes them to appropriate handlers
 """
 import re
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 

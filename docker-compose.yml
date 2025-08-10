@@ -1,0 +1,90 @@
+services:
+  bajaj-rag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: bajaj-rag-system
+    ports:
+      - "8000:8000"
+    environment:
+      # Application settings
+      - APP_NAME=LLM-Powered RAG System
+      - DEBUG=false
+      - HOST=0.0.0.0
+      - PORT=8000
+      
+      # LLM Configuration
+      - LLM_PROVIDER=copilot  # Options: "copilot" or "openai"
+      - LLM_MODEL=gpt-4.1-2025-04-14
+      
+      # Add your API keys here or use .env file
+      - COPILOT_ACCESS_TOKEN=${COPILOT_ACCESS_TOKEN:-your_copilot_token_here}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
+      
+      # GPU support (uncomment if using NVIDIA GPU)
+      # - CUDA_VISIBLE_DEVICES=0
+      
+      # Security
+      - BEARER_TOKEN=8915ddf1d1760f2b6a3b027c6fa7b16d2d87a042c41452f49a1d43b3cfa6245b
+      
+      # File processing settings
+      - MAX_FILE_SIZE=524288000  # 500MB
+      - UPLOAD_RETENTION_HOURS=24
+      - ENABLE_QUESTION_LOGGING=true
+      
+      # Hugging Face cache settings for consistent behavior
+      - HF_HOME=/home/appuser/.cache/huggingface
+      - TRANSFORMERS_CACHE=/home/appuser/.cache/transformers
+      - HF_HUB_CACHE=/home/appuser/.cache/huggingface/hub
+    
+    volumes:
+      # Persistent storage for application data
+      - ./data/blob_pdf:/app/blob_pdf
+      - ./data/parsed_documents:/app/parsed_documents
+      - ./data/uploads:/app/uploads
+      - ./data/vector_store:/app/vector_store
+      - ./data/question_logs:/app/question_logs
+      - ./data/pdfs:/app/pdfs
+      # Hugging Face model cache (to avoid re-downloading models)
+      - ./data/huggingface_cache:/home/appuser/.cache/huggingface
+    
+    # Uncomment for GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import requests; requests.get(\"http://localhost:8000/health\")' || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 300s
+
+  # Optional: Add a reverse proxy like nginx
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: bajaj-nginx
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     - bajaj-rag
+  #   restart: unless-stopped
+
+volumes:
+  # Define named volumes for better management
+  app_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data

@@ -331,7 +331,6 @@ English translation:"""
                 
                 if parent_dir.exists():
                     # Look for files with similar names (handling URL encoding variations)
-                    import fnmatch
                     
                     # Try different encoding patterns
                     search_patterns = [
@@ -595,11 +594,11 @@ English translation:"""
             
             # Print intelligent processing statistics
             if settings.enable_hybrid_processing:
-                print(f"Intelligent Processing Statistics:")
+                print("Intelligent Processing Statistics:")
                 total_pages = sum(processing_stats.values())
                 
                 # Processing method distribution
-                print(f"Processing method distribution:")
+                print("Processing method distribution:")
                 for method, count in processing_stats.items():
                     if count > 0:
                         avg_time = sum(processing_times.get(method, [])) / len(processing_times.get(method, [1]))
@@ -609,7 +608,7 @@ English translation:"""
                 # Complexity distribution
                 total_analyzed = sum(complexity_distribution.values())
                 if total_analyzed > 0:
-                    print(f"Page complexity distribution:")
+                    print("Page complexity distribution:")
                     for complexity, count in complexity_distribution.items():
                         print(f"  - {complexity}: {count} pages ({count/total_analyzed*100:.1f}%)")
                 
@@ -1252,7 +1251,6 @@ English translation:"""
             Formatted plain text string representing the table data.
         """
         try:
-            import pandas as pd
             
             if df.empty:
                 return ""
@@ -1427,7 +1425,7 @@ English translation:"""
             # Save metadata
             meta_path = Path(settings.pdf_blob_dir) / f"{filename}.meta"
             with open(meta_path, 'w', encoding='utf-8') as f:
-                f.write(f"# PDF Blob Metadata\n")
+                f.write("# PDF Blob Metadata\n")
                 f.write(f"# Generated: {datetime.now().isoformat()}\n")
                 f.write(f"# Source URL: {url}\n")
                 f.write(f"# File size: {len(pdf_data):,} bytes\n")
@@ -1466,19 +1464,19 @@ English translation:"""
             # Save parsed text
             text_path = Path(settings.parsed_text_dir) / filename
             with open(text_path, 'w', encoding='utf-8') as f:
-                f.write(f"# Document Parsing Report\n")
+                f.write("# Document Parsing Report\n")
                 f.write(f"# Generated: {datetime.now().isoformat()}\n")
                 f.write(f"# Source URL: {url}\n")
                 f.write(f"# Metadata: {metadata}\n")
                 f.write(f"\n{'='*50}\n")
-                f.write(f"ORIGINAL PARSED TEXT CONTENT\n")
+                f.write("ORIGINAL PARSED TEXT CONTENT\n")
                 f.write(f"{'='*50}\n\n")
                 f.write(f"{text}\n")
                 
                 # Write translated content if available
                 if translated_text:
                     f.write(f"\n\n{'='*50}\n")
-                    f.write(f"ENGLISH TRANSLATION\n")
+                    f.write("ENGLISH TRANSLATION\n")
                     f.write(f"{'='*50}\n\n")
                     f.write(f"{translated_text}\n")
             
@@ -1564,7 +1562,7 @@ English translation:"""
                 error_text = f"[No text content found in file: {filename}]\n"
                 error_text += f"[File type: {detected_type.extractor_type}]\n"
                 error_text += f"[File size: {len(file_data):,} bytes]\n"
-                error_text += f"[Recommendation: Check if file contains readable text content]"
+                error_text += "[Recommendation: Check if file contains readable text content]"
                 
                 extraction_result.text = error_text
                 extraction_result.metadata.update({
@@ -1595,7 +1593,7 @@ English translation:"""
                 'page_texts': getattr(extraction_result, 'page_texts', None) or [extraction_result.text]
             }
             
-            conditional_print(f"Document processing completed:")
+            conditional_print("Document processing completed:")
             conditional_print(f"  - Type: {detected_type.extractor_type}")
             conditional_print(f"  - Pages: {extraction_result.pages}")
             conditional_print(f"  - Text length: {len(extraction_result.text)} characters")
@@ -1616,12 +1614,12 @@ English translation:"""
                 detected_type = self.file_detector.detect_file_type(file_data, filename)
                 error_text += f"[Detected type: {detected_type.mime_type}]\n"
                 if detected_type.is_supported:
-                    error_text += f"[This file type should be supported - please check file integrity]"
+                    error_text += "[This file type should be supported - please check file integrity]"
                 else:
                     supported_types = self.file_detector.get_supported_types()
                     error_text += f"[Supported extensions: {', '.join(supported_types['extensions'])}]"
             except Exception:
-                error_text += f"[Could not detect file type - file may be corrupted]"
+                error_text += "[Could not detect file type - file may be corrupted]"
             
             # Return error result instead of raising exception
             return {

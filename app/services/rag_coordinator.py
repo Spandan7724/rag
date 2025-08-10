@@ -1,9 +1,7 @@
 """
 RAG Coordinator - orchestrates the complete RAG pipeline with query transformation
 """
-import asyncio
 import time
-import numpy as np
 from typing import Dict, Any, List, Optional, Set, Tuple
 from dataclasses import dataclass
 import logging
@@ -12,18 +10,17 @@ import hashlib
 
 from app.utils.debug import debug_print, info_print, conditional_print
 
-from app.services.document_processor import get_document_processor, ProcessedDocument
-from app.services.text_chunker import get_text_chunker, TextChunk
+from app.services.document_processor import get_document_processor
+from app.services.text_chunker import get_text_chunker
 from app.services.embedding_manager import get_embedding_manager
 from app.services.vector_store import get_vector_store, SearchResult
 from app.services.enhanced_answer_generator import get_enhanced_answer_generator as get_answer_generator
 from app.services.lru_cache_manager import get_lru_cache_manager
-from app.services.query_transformer import get_query_transformer, QueryTransformationResult
+from app.services.query_transformer import get_query_transformer
 from app.services.challenge_detector import get_challenge_detector, ChallengeType
-from app.services.challenge_solver import get_challenge_solver
 from app.services.universal_llm_solver import get_universal_llm_solver
 from app.services.web_client import WebClient
-from app.services.document_type_detector import get_document_type_detector, DocumentType
+from app.services.document_type_detector import get_document_type_detector
 from app.services.direct_processor import get_direct_processor
 from app.core.config import Settings
 
@@ -765,7 +762,7 @@ class RAGCoordinator:
             if should_cache:
                 try:
                     await self.cache_manager.set_answer_cache(cache_key, response)
-                    print(f"Cached semantic search answer for future requests")
+                    print("Cached semantic search answer for future requests")
                 except Exception as e:
                     print(f"Warning: Failed to cache answer: {e}")
             

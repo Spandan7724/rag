@@ -2,9 +2,7 @@
 Question Logger Service - Logs questions, document URLs, and responses to JSON files
 """
 import json
-import os
 import threading
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -52,9 +50,10 @@ class QuestionLogger:
         
         # Create archived directory for old logs
         self.archived_dir = self.log_dir / "archived"
-        self.archived_dir.mkdir(exist_ok=True)
+        self.archived_dir.mkdir(exist_ok=True, parents=True)
         
         print(f"Question Logger initialized: {self.log_dir}")
+        print(f"  - Archived directory: {self.archived_dir}")
         print(f"  - Logging enabled: {settings.enable_question_logging}")
         print(f"  - Full responses: {settings.log_full_responses}")
         print(f"  - Retention: {settings.log_retention_days} days")

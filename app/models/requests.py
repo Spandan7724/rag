@@ -2,7 +2,7 @@
 Request/Response models for the API
 """
 from pydantic import BaseModel, HttpUrl, field_validator
-from typing import List, Dict, Any, Union, Optional
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 class QueryRequest(BaseModel):
@@ -137,7 +137,7 @@ class QueryResponse(BaseModel):
                     "questions_with_transformation": 1,
                     "parallel_processing_time": 1.5,
                     "average_time_per_question": 0.75,
-                    "embedding_provider": "gemini",
+                    "embedding_provider": "bge-m3",
                     "embedding_dimension": 1024
                 }
             }

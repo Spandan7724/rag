@@ -3,7 +3,7 @@ PowerPoint document extractor for .pptx and .ppt files
 """
 import time
 import io
-from typing import List, Dict, Any
+from typing import List
 from .base_extractor import BaseExtractor, ExtractionResult
 
 
@@ -146,7 +146,7 @@ class PowerPointExtractor(BaseExtractor):
             except Exception:
                 pass  # Ignore metadata extraction errors
             
-            print(f"PowerPoint (.pptx) processing completed:")
+            print("PowerPoint (.pptx) processing completed:")
             print(f"  - Slides: {slide_count}/{len(prs.slides)}")
             print(f"  - Text shapes: {text_shapes_count}")
             print(f"  - Tables: {table_count}")
@@ -183,7 +183,7 @@ class PowerPointExtractor(BaseExtractor):
                 'note': 'Legacy .ppt format not supported - consider converting to .pptx'
             }
             
-            print(f"PowerPoint (.ppt) processing:")
+            print("PowerPoint (.ppt) processing:")
             print("  - Legacy .ppt format is not supported")
             print("  - Recommendation: Convert .ppt files to .pptx format for full support")
             print(f"  - Processing time: {processing_time:.2f}s")

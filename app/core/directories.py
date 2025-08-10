@@ -3,7 +3,7 @@ Directory management utilities for the RAG application
 """
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 import logging
 
 from app.core.config import settings
@@ -21,6 +21,7 @@ class DirectoryManager:
             settings.parsed_text_dir,
             settings.upload_dir,  # File upload storage
             "vector_store",  # Vector database storage
+            settings.question_log_dir,  # Question logging storage
         ]
     
     def ensure_directories_exist(self) -> None:

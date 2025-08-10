@@ -4,7 +4,7 @@ Document Type Detector Service
 Robust, multi-layer document classification system
 """
 import re
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, List, Tuple
 from enum import Enum
 from dataclasses import dataclass
 import urllib.parse

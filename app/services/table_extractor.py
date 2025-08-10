@@ -5,27 +5,12 @@ Enhanced table and structured data extraction from PDFs for HackRX challenges
 """
 import re
 import pandas as pd
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 import pymupdf as fitz  # PyMuPDF
 from app.utils.debug import conditional_print
-# Optional imports for advanced table extraction
-try:
-    import camelot
-    CAMELOT_AVAILABLE = True
-except ImportError:
-    CAMELOT_AVAILABLE = False
-    conditional_print("Warning: camelot-py not available. Advanced table extraction disabled.")
-
-try:
-    import tabula
-    TABULA_AVAILABLE = True
-except ImportError:
-    TABULA_AVAILABLE = False
-    conditional_print("Warning: tabula-py not available. Java-based table extraction disabled.")
-from io import StringIO
-import tempfile
-import os
+# Note: Removed camelot-py and tabula-py dependencies as they are not essential
+# PyMuPDF provides sufficient table extraction capabilities for this project
 
 @dataclass
 class TableData:
@@ -136,59 +121,7 @@ class TableExtractor:
         
         return tables
     
-    def extract_tables_camelot(self, pdf_path: str) -> List[TableData]:
-        """
-        Extract tables using Camelot
-        
-        Args:
-            pdf_path: Path to PDF file
-            
-        Returns:
-            List of extracted table data
-        """
-        if not CAMELOT_AVAILABLE:
-            print("Camelot not available, skipping advanced table extraction")
-            return []
-            
-        tables = []
-        
-        try:
-            # Try lattice method first (for tables with borders)
-            camelot_tables = camelot.read_pdf(pdf_path, flavor='lattice', pages='all')
-            
-            # If lattice fails, try stream method
-            if len(camelot_tables) == 0:
-                camelot_tables = camelot.read_pdf(pdf_path, flavor='stream', pages='all')
-            
-            for i, table in enumerate(camelot_tables):
-                try:
-                    df = table.df
-                    
-                    # Convert DataFrame to our format
-                    headers = df.columns.tolist()
-                    rows = df.values.tolist()
-                    
-                    # Clean data
-                    headers = [str(col).strip() for col in headers]
-                    rows = [[str(cell).strip() if pd.notna(cell) else "" for cell in row] for row in rows]
-                    
-                    tables.append(TableData(
-                        headers=headers,
-                        rows=rows,
-                        table_index=i,
-                        page_number=table.parsing_report['page'],
-                        extraction_method="camelot",
-                        confidence_score=table.accuracy / 100.0  # Convert to 0-1 scale
-                    ))
-                
-                except Exception as e:
-                    print(f"Error processing Camelot table {i}: {e}")
-                    continue
-        
-        except Exception as e:
-            print(f"Error processing PDF with Camelot: {e}")
-        
-        return tables
+    # Removed camelot table extraction method - not essential for this project
     
     def extract_landmark_mappings_from_text(self, text: str) -> List[LandmarkMapping]:
         """
@@ -385,21 +318,7 @@ class TableExtractor:
         except Exception as e:
             print(f"PyMuPDF table extraction failed: {e}")
         
-        # Method 2: Extract from tables using Camelot (if PyMuPDF didn't find enough)
-        if len(all_mappings) < 10:  # Threshold for trying alternative method
-            try:
-                camelot_tables = self.extract_tables_camelot(pdf_path)
-                camelot_mappings = self.extract_landmark_mappings_from_tables(camelot_tables)
-                
-                # Merge with existing mappings (avoid duplicates)
-                for mapping in camelot_mappings:
-                    if not any(m.landmark == mapping.landmark and m.current_city == mapping.current_city 
-                             for m in all_mappings):
-                        all_mappings.append(mapping)
-                
-                print(f"Added {len(camelot_mappings)} mappings from Camelot tables")
-            except Exception as e:
-                print(f"Camelot table extraction failed: {e}")
+        # Method 2: Removed - camelot table extraction no longer needed
         
         # Method 3: Extract from text content using pattern matching
         if text_content:

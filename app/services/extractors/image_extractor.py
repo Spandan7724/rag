@@ -3,7 +3,7 @@ Image OCR extractor for extracting text from image files
 """
 import time
 import io
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from .base_extractor import BaseExtractor, ExtractionResult
 
 
@@ -111,7 +111,7 @@ class ImageExtractor(BaseExtractor):
                 'extractor': 'paddleocr'
             }
             
-            print(f"Image OCR (PaddleOCR) processing completed:")
+            print("Image OCR (PaddleOCR) processing completed:")
             print(f"  - Image: {image.size[0]}x{image.size[1]} {image.format}")
             print(f"  - Text lines: {len(extracted_texts)}")
             print(f"  - Average confidence: {avg_confidence:.3f}")
@@ -185,7 +185,7 @@ class ImageExtractor(BaseExtractor):
                 'extractor': 'pytesseract'
             }
             
-            print(f"Image OCR (Tesseract) processing completed:")
+            print("Image OCR (Tesseract) processing completed:")
             print(f"  - Image: {image.size[0]}x{image.size[1]} {image.format}")
             print(f"  - Text elements: {len(extracted_texts)}")
             print(f"  - Average confidence: {avg_confidence:.1f}")

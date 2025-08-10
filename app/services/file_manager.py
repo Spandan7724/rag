@@ -1,16 +1,12 @@
 """
 File Manager Service for handling uploaded files
 """
-import os
-import shutil
-import time
 import uuid
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
-import mimetypes
 
 from fastapi import UploadFile, HTTPException
 
@@ -101,20 +97,27 @@ class FileManager:
                 detail=f"File too large: {upload_file.size:,} bytes (max: {settings.max_upload_size:,})"
             )
         
-        # Check content type
-        if upload_file.content_type not in settings.allowed_upload_types:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid file type: {upload_file.content_type}. Allowed: {settings.allowed_upload_types}"
-            )
-        
-        # Check filename extension
-        if upload_file.filename:
-            file_ext = Path(upload_file.filename).suffix.lower()
-            if file_ext != '.pdf':
+        # Check content type (if restrictions are configured)
+        if settings.allowed_upload_types is not None:
+            if upload_file.content_type not in settings.allowed_upload_types:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid file extension: {file_ext}. Only .pdf files are allowed"
+                    detail=f"Invalid file type: {upload_file.content_type}. Allowed: {settings.allowed_upload_types}"
+                )
+        # If allowed_upload_types is None, we rely on the file type detector to validate supported types
+        
+        # Check filename extension against supported types
+        if upload_file.filename:
+            file_ext = Path(upload_file.filename).suffix.lower()
+            # Get supported extensions from file type detector
+            from app.services.extractors import FileTypeDetector
+            detector = FileTypeDetector()
+            supported_extensions = list(detector.EXTENSION_MAPPING.keys())
+            
+            if file_ext not in supported_extensions:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid file extension: {file_ext}. Supported: {supported_extensions}"
                 )
     
     async def save_uploaded_file(self, upload_file: UploadFile) -> UploadedFileInfo:

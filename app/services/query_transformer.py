@@ -8,12 +8,12 @@ to improve retrieval coverage in RAG systems, particularly for policy documents.
 import time
 import json
 import logging
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import asyncio
 
 from app.core.config import settings
-from app.services.copilot_provider import get_copilot_provider, CopilotResponse
+from app.services.copilot_provider import get_copilot_provider
 
 logger = logging.getLogger(__name__)
 
@@ -181,28 +181,13 @@ Respond with a JSON array of strings, each representing a focused sub-query:
                 raise Exception(f"Copilot error: {response.error}")
             return response.content
         
-        elif self.provider_type == "gemini":
-            # Import here to avoid circular imports
-            import google.generativeai as genai
-            import os
-            
-            if not os.getenv("GEMINI_API_KEY"):
-                raise ValueError("GEMINI_API_KEY environment variable is required")
-                
-            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-            model = genai.GenerativeModel(self.model)
-            
-            response = model.generate_content(
-                prompt,
-                generation_config={
-                    'temperature': self.temperature,
-                    'max_output_tokens': 512
-                }
-            )
-            return response.text
-        
         else:
-            raise ValueError(f"Unsupported LLM provider: {self.provider_type}")
+            # Fallback to Copilot for unknown providers
+            logger.warning(f"Unknown provider '{self.provider_type}', falling back to Copilot")
+            response = await provider.generate_answer(prompt, temperature=self.temperature)
+            if response.error:
+                raise Exception(f"Copilot error: {response.error}")
+            return response.content
 
     def _parse_sub_queries(self, llm_response: str) -> List[str]:
         """

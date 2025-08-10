@@ -2,7 +2,7 @@
 Application configuration
 """
 from pydantic_settings import BaseSettings
-from typing import Optional, List
+from typing import Optional
 
 class Settings(BaseSettings):
     # API Configuration
@@ -31,7 +31,8 @@ class Settings(BaseSettings):
     upload_dir: str = "uploads"  # Directory to store uploaded files
     upload_retention_hours: int = 24  # How long to keep uploaded files
     max_upload_size: int = 500 * 1024 * 1024  # 500MB max upload size
-    allowed_upload_types: list = ["application/pdf"]  # Only allow PDF files
+    # File upload types - set to None to allow all supported types, or specify a list to restrict
+    allowed_upload_types: Optional[list] = None  # None = allow all supported types, or specify list to restrict
     upload_cleanup_interval: int = 3600  # Cleanup interval in seconds (1 hour)
     
     # Question Logging Configuration
@@ -45,18 +46,9 @@ class Settings(BaseSettings):
     processing_timeout: int = 3000  # seconds
     
     # Embedding Configuration
-    embedding_provider: str = "bge-m3"  # Options: "bge-m3", "gemini"
+    embedding_provider: str = "bge-m3"  # BGE-M3 embedding model
     embedding_model: str = "BAAI/bge-m3"  # For BGE-M3 provider
     embedding_device: str = "cuda"  # Use GPU if available for local models
-    
-    # Gemini Embedding Configuration
-    gemini_embedding_model: str = "gemini-embedding-001"  # Gemini model name
-    gemini_embedding_dimension: int = 768  # Options: 128-3072, recommended: 768, 1536, 3072
-    gemini_task_type_document: str = "RETRIEVAL_DOCUMENT"  # Task type for indexing documents
-    gemini_task_type_query: str = "RETRIEVAL_QUERY"  # Task type for search queries
-    gemini_api_timeout: int = 30  # API request timeout in seconds
-    gemini_batch_size: int = 100  # Maximum texts per API call
-    gemini_rate_limit_delay: float = 0.1  # Delay between API calls for rate limiting
     
     # Hybrid PDF Processing Configuration
     enable_hybrid_processing: bool = True  # Enable smart page-level processing
@@ -66,7 +58,7 @@ class Settings(BaseSettings):
     parallel_pages: bool = True  # Process pages in parallel when possible
     ocr_provider: str = "rapidocr"  # Options: "tesseract", "paddleocr", "rapidocr"
     
-    # Table Extraction Configuration (Simplified)
+    
     table_extraction_method: str = "pdfplumber"  # Primary method for table extraction
     
     # Vector Storage Configuration
@@ -116,10 +108,10 @@ class Settings(BaseSettings):
     gpu_memory_limit: Optional[str] = None  # Auto-detect GPU memory limit (remove artificial constraints)
 
     # LLM Configuration
-    llm_provider: str = "copilot"  # Options: "gemini", "copilot"
-    llm_model: str = "claude-sonnet-4"  # Model for answer generation #gpt-4.1-2025-04-14 #gemini-1.5-flash-latest
-    gemini_api_key: str = ""  # Set via environment variable G  EMINI_API_KEY
+    llm_provider: str = "copilot"  # LLM provider: "copilot" or "openai"
+    llm_model: str = "claude-sonnet-4"  # Model for answer generation
     copilot_access_token: str = ""  # Set via environment variable COPILOT_ACCESS_TOKEN
+    openai_api_key: str = ""  # Set via environment variable OPENAI_API_KEY
     llm_max_tokens: int = 2048  # Increased for comprehensive insurance analysis with metadata
     llm_temperature: float = 0.2  # Lower temperature for more factual, precise responses
     

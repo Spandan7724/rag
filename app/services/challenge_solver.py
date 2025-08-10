@@ -3,14 +3,13 @@
 Challenge Solver Service
 Multi-step reasoning engine for HackRX geographic puzzles and complex challenges
 """
-import asyncio
 import time
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .web_client import WebClient, get_web_client
-from .table_extractor import TableExtractor, LandmarkMapping, get_table_extractor
+from .web_client import WebClient
+from .table_extractor import LandmarkMapping, get_table_extractor
 from .vector_store import get_vector_store
 from app.utils.debug import conditional_print
 # Avoid circular import - rag_coordinator will be imported lazily when needed

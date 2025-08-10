@@ -3,7 +3,7 @@ Excel document extractor for .xlsx and .xls files
 """
 import time
 import io
-from typing import List, Dict, Any
+from typing import List
 from .base_extractor import BaseExtractor, ExtractionResult
 
 
@@ -119,7 +119,7 @@ class ExcelExtractor(BaseExtractor):
                 'extractor': 'openpyxl'
             }
             
-            print(f"Excel (.xlsx) processing completed:")
+            print("Excel (.xlsx) processing completed:")
             print(f"  - Sheets: {sheet_count}")
             print(f"  - Cells: {cell_count}")
             print(f"  - Text length: {len(all_text)} characters")
@@ -209,7 +209,7 @@ class ExcelExtractor(BaseExtractor):
                 'extractor': 'xlrd'
             }
             
-            print(f"Excel (.xls) processing completed:")
+            print("Excel (.xls) processing completed:")
             print(f"  - Sheets: {sheet_count}")
             print(f"  - Cells: {cell_count}")
             print(f"  - Text length: {len(all_text)} characters")

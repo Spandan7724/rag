@@ -1,0 +1,104 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.coverage
+.hypothesis/
+.tox/
+*.egg-info/
+dist/
+build/
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Environment files (exclude from image, will be created in container)
+.env
+.env.local
+.env.*.local
+
+# Documentation and development files
+README.md
+CLAUDE.md
+*.md
+docs/
+.readthedocs.yml
+
+# Development and testing files
+test_*.py
+*_test.py
+tests/
+.pytest_cache/
+
+# Runtime data directories (will be created in container)
+blob_pdf/
+parsed_documents/
+uploads/
+vector_store/
+question_logs/
+
+# Development PDFs (exclude large test files)
+pdfs/
+
+# Lock files (keeping uv.lock for uv sync)
+poetry.lock
+Pipfile.lock
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Development scripts
+requests.bash
+repomix-output.xml
+
+# Docker files (no need to copy Dockerfile into itself)
+Dockerfile
+docker-compose.yml
+docker-compose.yaml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Package manager files we don't need in final image
+package-lock.json
+yarn.lock

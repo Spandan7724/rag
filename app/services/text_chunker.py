@@ -324,7 +324,7 @@ class TextChunker:
         Returns:
             List of TextChunk objects with enhanced semantic metadata
         """
-        debug_print(f"Starting semantic text chunking...")
+        debug_print("Starting semantic text chunking...")
         debug_print(f"Document length: {len(text):,} characters")
         debug_print(f"Target: {self.max_tokens} tokens per chunk with {self.overlap_tokens} token overlap")
         
@@ -417,7 +417,7 @@ class TextChunker:
         for chunk in chunks:
             chunk_types[chunk.chunk_type] = chunk_types.get(chunk.chunk_type, 0) + 1
         
-        info_print(f"Semantic chunking completed:")
+        info_print("Semantic chunking completed:")
         debug_print(f"  - Total chunks: {len(chunks)}")
         debug_print(f"  - Average tokens per chunk: {avg_tokens:.1f}")
         print(f"  - Chunk types: {dict(chunk_types)}")
