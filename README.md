@@ -1,31 +1,36 @@
-# Bajaj Hackrx 
+# Hybrid Document RAG System
+
+A production-ready **Retrieval-Augmented Generation (RAG) system** for intelligent document processing and question answering. Built with modern AI technologies including BGE-M3 embeddings, FAISS vector storage, and multi-LLM support.
+
+## Overview
+
+This system provides comprehensive document intelligence capabilities, supporting multiple file formats and languages with advanced caching, GPU acceleration, and scalable deployment options.
 
 ## Features
 
 ### Core Capabilities
-- **Intelligent Challenge Detection**: Automatically detects and routes specialized question types (geographic puzzles, flight numbers, secret tokens, web scraping)
 - **Multi-Format Document Processing**: Supports PDF, Word, Excel, PowerPoint, images, and text files
-- **Advanced RAG Pipeline**: BGE-M3 embeddings with FAISS vector storage and persistent caching
+- **Advanced RAG Pipeline**: BGE-M3 embeddings with FAISS/Pinecone vector storage and persistent caching
 - **Hybrid Processing**: Smart page-level processing with OCR fallback for complex documents
-- **Query Transformation**: Multi-query decomposition for complex questions
+- **Multi-LLM Support**: Integrated support for Claude Sonnet 4, GPT-4, and OpenAI models
 - **Multilingual Support**: Cross-language semantic matching and processing
+- **GPU Acceleration**: CUDA support for embeddings and OCR processing
 
 ### Document Processing
 - **Multi-Format Support**: PDF, Word (.docx/.doc), Excel (.xlsx/.xls), PowerPoint (.pptx/.ppt), text files, and images
 - **PDF Processing**: Text extraction, OCR, table detection, and image processing
 - **Office Documents**: Native support for Microsoft Office formats with content extraction
 - **Image Processing**: OCR-based text extraction from images (PNG, JPEG, GIF, BMP, TIFF, WebP)
-- **Table Extraction**: Specialized extraction for landmark-to-city mappings and structured data
-- **Web Scraping**: Integration with HackRX API endpoints and general web content extraction
+- **Table Extraction**: Intelligent extraction of structured data and tables
 - **File Upload Management**: Temporary storage with configurable retention policies
 - **Blob Caching**: File caching to prevent re-downloading and reprocessing
 
 ### Architecture Highlights
-- **Individual Question Processing**: Reliable processing without race conditions
-- **Challenge-Aware Routing**: Specialized handlers for different question types
+- **Intelligent Document Processing**: Reliable processing with caching and deduplication
 - **Persistent Vector Storage**: FAISS indices with disk persistence
 - **GPU Acceleration**: CUDA support for embeddings and OCR
 - **Comprehensive Logging**: Detailed question and response logging with metadata
+- **Custom GitHub Copilot Integration**: Access to Claude Sonnet 4 and latest GPT models
 
 ## Table of Contents
 
@@ -36,7 +41,6 @@
 - [Architecture](#architecture)
 - [Docker Deployment](#docker-deployment)
 - [Development](#development)
-- [Contributing](#contributing)
 
 ##  Installation
 
@@ -51,12 +55,12 @@
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd bajaj
+   cd rag
    ```
 
 2. **Set up Python environment**:
    ```bash
-   # Using uv (recommended)
+   # Using uv 
    python -m venv .venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    pip install uv
@@ -94,14 +98,14 @@ python run.py
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Docker (Recommended for Production)
+### Docker 
 ```bash
 # Using Docker Compose
 docker-compose up -d
 
 # Or build manually
-docker build -t bajaj-rag:latest .
-docker run -d -p 8000:8000 --name bajaj-rag bajaj-rag:latest
+docker build -t rag:latest .
+docker run -d -p 8000:8000 --name rag rag:latest
 ```
 
 ### Basic Usage
@@ -109,14 +113,14 @@ Once running, the API will be available at `http://localhost:8000`
 
 **Example Request**:
 ```bash
-curl -X POST "http://localhost:8000/hackrx/run" \
+curl -X POST "http://localhost:8000/query" \
   -H "Authorization: Bearer 8915ddf1d1760f2b6a3b027c6fa7b16d2d87a042c41452f49a1d43b3cfa6245b" \
   -H "Content-Type: application/json" \
   -d '{
     "documents": "https://example.com/document.pdf",
     "questions": [
-      "What is the grace period for premium payment?",
-      "What are the coverage limits?"
+      "What are the key requirements mentioned?",
+      "What are the specified limits or constraints?"
     ]
   }'
 ```
@@ -158,7 +162,6 @@ The system leverages GitHub Copilot's OpenAI-compatible API endpoint (`https://a
 - `gpt-4.1-2025-04-14` - Latest GPT-4.1 model (via Copilot)
 - `gpt-4o` - GPT-4 Omni model
 
-
 #### OpenAI Direct API
 
 For direct OpenAI API access (standard implementation):
@@ -177,24 +180,6 @@ export OPENAI_API_KEY=your_openai_api_key_here
 - `gpt-3.5-turbo` - Cost-effective for simpler tasks
 - `o1-preview` - Advanced reasoning model
 - `o1-mini` - Faster reasoning model
-
-#### Why Use GitHub Copilot?
-
-The GitHub Copilot integration provides several advantages:
-- **Access to Claude Models**: Use Claude Sonnet 4 through the Copilot API
-- **Latest GPT Models**: Access to GPT-4.1 and other cutting-edge models
-- **Unified API**: Single endpoint for multiple model providers
-- **Enterprise Features**: Enhanced rate limits and enterprise support (if available)
-
-#### Technical Implementation
-
-The custom Copilot provider (`app/services/copilot_provider.py`) implements:
-- **OpenAI-Compatible Interface**: Translates OpenAI API calls to Copilot API format
-- **Model Mapping**: Maps model names to Copilot-supported models
-- **Authentication Handling**: Uses Copilot access tokens for authentication
-- **Response Formatting**: Ensures consistent response format across providers
-
-This allows seamless switching between providers without changing the core RAG logic.
 
 ### Environment Variables
 
@@ -223,11 +208,11 @@ Key configuration options in `app/core/config.py`:
 
 ### Main Endpoints
 
-#### POST `/hackrx/run`
+#### POST `/query`
 Complete RAG pipeline with document processing and Q&A
 - **Input**: Document URL/file and list of questions
 - **Output**: Answers with sources and metadata
-- **Features**: Challenge detection, query transformation, caching
+- **Features**: Intelligent routing, caching, multi-format support
 
 #### POST `/upload`
 Upload files for processing
@@ -254,40 +239,37 @@ Health check endpoint
 
 ##  Architecture
 
-### Challenge Detection System
+### Core Processing Flow
 
-The system uses intelligent challenge detection to route questions:
+The system uses a streamlined processing pipeline:
 
 ```
-Question Input → Challenge Detection → Route Decision:
-├── SECRET_TOKEN → Web Client → HackRX API → Token Response
-├── GEOGRAPHIC_PUZZLE → Challenge Solver → Multi-step → Flight Number
-├── FLIGHT_NUMBER → Direct Extraction OR Geographic Fallback
-├── WEB_SCRAPING → General web content extraction
-└── STANDARD_RAG → Vector Search → LLM Generation → Answer
+Document Input → Processing Pipeline:
+├── Multi-Format Detection → Appropriate Extractor
+├── Text Chunking → BGE-M3 Embeddings
+├── Vector Storage → FAISS Index
+└── Question Processing → LLM Generation → Answer
 ```
 
 ### Document Processing Pipeline
 
 ```
 Document URL → Type Detection:
-├── API Endpoint → Skip Processing → Mark for Web Scraping
 └── Document File → Processing Pipeline:
-    ├── Geographic Content → Direct Pipeline → Landmark Mapping
-    └── Standard Content → RAG Pipeline → Chunking → Vector Storage
+    ├── Text Extraction → OCR if needed
+    ├── Chunking → Embedding Generation
+    └── Vector Storage → FAISS Index
 ```
 
 ### Core Components
 
 | Component | Purpose |
 |-----------|---------|
-| **RAG Coordinator** | Main orchestrator with individual question processing |
-| **Challenge Detector** | Pattern-based question classification |
+| **RAG Coordinator** | Main orchestrator for document and question processing |
 | **Document Processor** | Multi-format document processing with OCR |
 | **Vector Store** | FAISS-based storage with persistence |
 | **Embedding Manager** | BGE-M3 embeddings with GPU acceleration |
-| **Query Transformer** | Multi-query decomposition for complex questions |
-| **Web Client** | HackRX API integration and web scraping |
+| **Answer Generator** | Multi-LLM answer generation with custom providers |
 
 ##  Docker Deployment
 
@@ -295,7 +277,7 @@ Document URL → Type Detection:
 ```bash
 # Clone and configure
 git clone <repository-url>
-cd bajaj
+cd rag
 cp .env.example .env
 # Edit .env with your API keys
 
@@ -307,7 +289,7 @@ docker-compose up -d
 ```yaml
 # docker-compose.yml
 services:
-  bajaj-rag:
+  rag:
     build: .
     ports:
       - "8000:8000"
@@ -327,21 +309,20 @@ docker run -d \
   --gpus all \
   -p 8000:8000 \
   -e CUDA_VISIBLE_DEVICES=0 \
-  bajaj-rag:latest
+  rag:latest
 ```
 
 ##  Development
 
 ### Project Structure
 ```
-bajaj/
+rag/
 ├── app/
 │   ├── api/                 # FastAPI routes
 │   ├── core/                # Configuration and security
 │   ├── models/              # Pydantic models
 │   ├── services/            # Core business logic
 │   │   ├── extractors/      # Document format extractors
-│   │   ├── challenge_detector.py
 │   │   ├── rag_coordinator.py
 │   │   ├── document_processor.py
 │   │   └── ...
@@ -368,14 +349,6 @@ DEBUG=true python run.py
 curl http://localhost:8000/health
 ```
 
-### Key Development Notes
-
-1. **Individual Processing**: The system processes questions individually to prevent race conditions
-2. **Challenge Thresholds**: Confidence thresholds are tuned for reliable classification
-3. **GPU Acceleration**: Enabled for embeddings and OCR when available
-4. **Caching**: Multiple layers of caching for performance optimization
-5. **Error Handling**: Comprehensive error handling with graceful degradation
-
 ## Dependencies
 
 ### Core ML/AI Libraries
@@ -387,15 +360,13 @@ curl http://localhost:8000/health
 ### Document Processing
 - **pymupdf** - Primary PDF text extraction
 - **rapidocr-onnxruntime** - OCR with GPU acceleration
-- **pdfplumber** - Table extraction for landmark mappings
 - **python-docx** - Word document processing
 - **openpyxl** - Excel file processing
 
 ### API and Web
 - **fastapi** - Web framework for API endpoints
 - **uvicorn** - ASGI server for development and deployment
-- **httpx** - Async HTTP client for web scraping
-- **aiohttp** - Additional HTTP client support
+- **httpx** - Async HTTP client
 
 ## Performance Features
 
@@ -420,3 +391,12 @@ curl http://localhost:8000/health
 - **Question Logging**: Complete query and response logging
 - **Debug Endpoints**: System introspection and diagnostics
 - **Directory Management**: Automatic directory validation
+
+## Use Cases
+
+This system is ideal for:
+- **Document Analysis**: Legal contracts, technical manuals, research papers
+- **Knowledge Management**: Corporate documentation, policy documents
+- **Content Search**: Large document repositories, academic papers
+- **Multi-language Content**: Documents in multiple languages
+- **Technical Documentation**: API docs, user manuals, specifications

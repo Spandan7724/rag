@@ -134,75 +134,6 @@ wheels = [
 ]
 
 [[package]]
-name = "bajaj"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "docling" },
-    { name = "docx2txt" },
-    { name = "easyocr" },
-    { name = "faiss-cpu" },
-    { name = "fastapi" },
-    { name = "flagembedding" },
-    { name = "httpx" },
-    { name = "opencv-python" },
-    { name = "openpyxl" },
-    { name = "paddleocr" },
-    { name = "pandas" },
-    { name = "pdfplumber" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pymupdf" },
-    { name = "pymupdf4llm" },
-    { name = "pytesseract" },
-    { name = "python-docx" },
-    { name = "python-magic" },
-    { name = "python-multipart" },
-    { name = "python-pptx" },
-    { name = "rapidocr-onnxruntime" },
-    { name = "sentence-transformers" },
-    { name = "tiktoken" },
-    { name = "torch" },
-    { name = "tqdm" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "xlrd" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.12.15" },
-    { name = "docling", specifier = ">=2.7.0" },
-    { name = "docx2txt", specifier = ">=0.8" },
-    { name = "easyocr", specifier = ">=1.7.2" },
-    { name = "faiss-cpu", specifier = ">=1.7.4" },
-    { name = "fastapi", specifier = ">=0.116.1" },
-    { name = "flagembedding", specifier = ">=1.2.11" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "opencv-python", specifier = ">=4.12.0.88" },
-    { name = "openpyxl", specifier = ">=3.1.0" },
-    { name = "paddleocr", specifier = ">=3.1.0" },
-    { name = "pandas", specifier = ">=2.0.0" },
-    { name = "pdfplumber", specifier = ">=0.11.7" },
-    { name = "pydantic", specifier = ">=2.11.7" },
-    { name = "pydantic-settings", specifier = ">=2.10.1" },
-    { name = "pymupdf", specifier = ">=1.26.3" },
-    { name = "pymupdf4llm", specifier = ">=0.0.27" },
-    { name = "pytesseract", specifier = ">=0.3.13" },
-    { name = "python-docx", specifier = ">=1.1.0" },
-    { name = "python-magic", specifier = ">=0.4.27" },
-    { name = "python-multipart", specifier = ">=0.0.20" },
-    { name = "python-pptx", specifier = ">=0.6.21" },
-    { name = "rapidocr-onnxruntime", specifier = ">=1.4.4" },
-    { name = "sentence-transformers", specifier = ">=2.2.2" },
-    { name = "tiktoken", specifier = ">=0.8.0" },
-    { name = "torch", specifier = ">=2.7.1" },
-    { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
-    { name = "xlrd", specifier = ">=2.0.1" },
-]
-
-[[package]]
 name = "beautifulsoup4"
 version = "4.13.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2720,6 +2651,75 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/fe/0f/25911a9f080464c59fab9027482f822b86bf0608957a5fcc6eaac85aa515/PyYAML-6.0.2-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:68ccc6023a3400877818152ad9a1033e3db8625d899c72eacb5a668902e4d652", size = 751597, upload-time = "2024-08-06T20:32:56.985Z" },
     { url = "https://files.pythonhosted.org/packages/14/0d/e2c3b43bbce3cf6bd97c840b46088a3031085179e596d4929729d8d68270/PyYAML-6.0.2-cp313-cp313-win32.whl", hash = "sha256:bc2fa7c6b47d6bc618dd7fb02ef6fdedb1090ec036abab80d4681424b84c1183", size = 140527, upload-time = "2024-08-06T20:33:03.001Z" },
     { url = "https://files.pythonhosted.org/packages/fa/de/02b54f42487e3d3c6efb3f89428677074ca7bf43aae402517bc7cca949f3/PyYAML-6.0.2-cp313-cp313-win_amd64.whl", hash = "sha256:8388ee1976c416731879ac16da0aff3f63b286ffdd57cdeb95f3f2e085687563", size = 156446, upload-time = "2024-08-06T20:33:04.33Z" },
+]
+
+[[package]]
+name = "rag"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "docling" },
+    { name = "docx2txt" },
+    { name = "easyocr" },
+    { name = "faiss-cpu" },
+    { name = "fastapi" },
+    { name = "flagembedding" },
+    { name = "httpx" },
+    { name = "opencv-python" },
+    { name = "openpyxl" },
+    { name = "paddleocr" },
+    { name = "pandas" },
+    { name = "pdfplumber" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pymupdf" },
+    { name = "pymupdf4llm" },
+    { name = "pytesseract" },
+    { name = "python-docx" },
+    { name = "python-magic" },
+    { name = "python-multipart" },
+    { name = "python-pptx" },
+    { name = "rapidocr-onnxruntime" },
+    { name = "sentence-transformers" },
+    { name = "tiktoken" },
+    { name = "torch" },
+    { name = "tqdm" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "xlrd" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.12.15" },
+    { name = "docling", specifier = ">=2.7.0" },
+    { name = "docx2txt", specifier = ">=0.8" },
+    { name = "easyocr", specifier = ">=1.7.2" },
+    { name = "faiss-cpu", specifier = ">=1.7.4" },
+    { name = "fastapi", specifier = ">=0.116.1" },
+    { name = "flagembedding", specifier = ">=1.2.11" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "opencv-python", specifier = ">=4.12.0.88" },
+    { name = "openpyxl", specifier = ">=3.1.0" },
+    { name = "paddleocr", specifier = ">=3.1.0" },
+    { name = "pandas", specifier = ">=2.0.0" },
+    { name = "pdfplumber", specifier = ">=0.11.7" },
+    { name = "pydantic", specifier = ">=2.11.7" },
+    { name = "pydantic-settings", specifier = ">=2.10.1" },
+    { name = "pymupdf", specifier = ">=1.26.3" },
+    { name = "pymupdf4llm", specifier = ">=0.0.27" },
+    { name = "pytesseract", specifier = ">=0.3.13" },
+    { name = "python-docx", specifier = ">=1.1.0" },
+    { name = "python-magic", specifier = ">=0.4.27" },
+    { name = "python-multipart", specifier = ">=0.0.20" },
+    { name = "python-pptx", specifier = ">=0.6.21" },
+    { name = "rapidocr-onnxruntime", specifier = ">=1.4.4" },
+    { name = "sentence-transformers", specifier = ">=2.2.2" },
+    { name = "tiktoken", specifier = ">=0.8.0" },
+    { name = "torch", specifier = ">=2.7.1" },
+    { name = "tqdm", specifier = ">=4.67.1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.35.0" },
+    { name = "xlrd", specifier = ">=2.0.1" },
 ]
 
 [[package]]

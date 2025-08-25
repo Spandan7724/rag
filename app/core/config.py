@@ -6,7 +6,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     # API Configuration
-    app_name: str = "LLM-Powered Intelligent Query-Retrieval System"
+    app_name: str = "Hybrid Document RAG System"
     version: str = "1.0.0"
     debug: bool = False
     
@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     vector_retention_days: int = 7  # Days to keep vector indices when auto_cleanup enabled
     
     # Text Chunking Configuration
-    chunk_size: int = 450  # Smaller chunks to isolate short clauses like grace period (<600 chars)
+    chunk_size: int = 450  # Optimized chunk size for precise information retrieval (<600 chars)
     chunk_overlap: int = 100   # Increased overlap for better continuity and accuracy
     k_retrieve: int = 35  # Optimized for speed/accuracy balance 
     max_tokens_per_chunk: int = 8192  # BGE-M3 max supported tokens
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     # Performance Optimization Configuration
     debug_mode: bool = False  # Enable verbose debug logging (impacts performance)
     enable_result_caching: bool = False  # Cache query results for faster responses
-    cache_ttl_seconds: int = 36000  # Cache time-to-live (10 hours)
+    cache_ttl_seconds: int = 43200  # Cache time-to-live (12 hours)
     enable_embedding_cache: bool = True  # Cache embeddings for repeated chunks
     enable_reranker_cache: bool = True  # Cache reranker scores
     enable_answer_cache: bool = True  # Cache complete answers for semantic search documents only
@@ -112,20 +112,14 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-4"  # Model for answer generation
     copilot_access_token: str = ""  # Set via environment variable COPILOT_ACCESS_TOKEN
     openai_api_key: str = ""  # Set via environment variable OPENAI_API_KEY
-    llm_max_tokens: int = 2048  # Increased for comprehensive insurance analysis with metadata
+    llm_max_tokens: int = 2048  # Increased for comprehensive document analysis with metadata
     llm_temperature: float = 0.2  # Lower temperature for more factual, precise responses
     
-    # Competition-specific optimizations
-    competition_mode: bool = False  # Enable competition optimizations
+    # Performance optimizations
+    performance_mode: bool = False  # Enable performance optimizations
     fast_mode: bool = False  # Prioritize accuracy over speed
     max_context_tokens: int = 64000  # Increased context for better accuracy
     
-    # Query Transformation Configuration
-    enable_query_transformation: bool = True  # Enable multi-query decomposition
-    max_sub_queries: int = 4  # Maximum number of sub-queries to generate
-    query_transformation_timeout: int = 30  # Timeout for query decomposition in seconds
-    min_query_length: int = 20  # Minimum query length to consider for transformation
-    transformation_temperature: float = 0.1  # Temperature for query transformation LLM calls
     
     class Config:   
         env_file = ".env"

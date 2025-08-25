@@ -206,11 +206,11 @@ class EnhancedAnswerGenerator:
             specialized_instructions = "\n- COMPLETE DEFINITION EXTRACTION: Provide the entire verbatim definition including all sub-clauses, conditions, exceptions, and qualifying statements exactly as written in the policy document."
         elif any(term in question_lower for term in ['when', 'time', 'period', 'days']):
             specialized_instructions = "\n- TEMPORAL PRECISION: Extract exact time periods, specific days, deadlines, and ALL associated conditions, requirements, and exceptions verbatim from the context."
-        elif any(term in question_lower for term in ['coverage', 'covered', 'benefit']):
-            specialized_instructions = "\n- COMPREHENSIVE COVERAGE EXTRACTION: Quote complete coverage details including ALL conditions, exclusions, limitations, and qualifying criteria exactly as stated in the policy text."
+        elif any(term in question_lower for term in ['coverage', 'covered', 'benefit', 'includes', 'encompasses', 'applies to']):
+            specialized_instructions = "\n- COMPREHENSIVE SCOPE EXTRACTION: Quote complete scope details including ALL conditions, exclusions, limitations, and qualifying criteria exactly as stated in the document."
         elif any(term in question_lower for term in ['impact', 'effect', 'consequence', 'result']):
             specialized_instructions = "\n- IMPACT EXTRACTION: Only state impacts, effects, or consequences explicitly mentioned in the document using the exact subjects and objects as stated (e.g., if document says 'computers manufactured', use 'computers manufactured' not 'companies committed to manufacturing'). Do not infer, generalize, or analyze implications beyond what is directly stated."
-        elif any(term in question_lower for term in ['procedure', 'process', 'how to', 'steps']):
+        elif any(term in question_lower for term in ['procedure', 'process', 'how to', 'steps', 'method', 'approach']):
             specialized_instructions = "\n- PROCEDURAL EXTRACTION: Extract complete step-by-step procedures, requirements, and processes verbatim, preserving all numbering, sequencing, and conditional statements."
         elif any(term in question_lower for term in ['eligible', 'eligibility', 'qualify', 'criteria']):
             specialized_instructions = "\n- ELIGIBILITY CRITERIA EXTRACTION: Quote complete eligibility requirements, qualifying conditions, and all associated criteria exactly as specified in the context."
@@ -273,8 +273,8 @@ COMPLETENESS REQUIREMENTS:
 - Only state what is explicitly written in the document - no inferences or implications
 
 EXAMPLE:
-Q: What is the grace period for premium payment?
-A: A grace period of thirty days is allowed for payment of renewal premium without losing continuity benefits. During this period, the policy remains in force and all benefits are available to the insured."""
+Q: What is the deadline for project submission?
+A: The deadline for project submission is 30 days from the notification date. All submissions must be complete and include all required documentation to be considered valid."""
         
         return f"""{system_message}
 

@@ -2,15 +2,16 @@
 API routes for the RAG application
 """
 import time
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 
 from app.models.requests import (
-    QueryRequest, QueryResponse, SimpleQueryResponse, HealthResponse, UploadResponse, 
+    QueryRequest, SimpleQueryResponse, HealthResponse, UploadResponse, 
     FileInfoResponse, FileListResponse
 )
 from app.services.rag_coordinator import get_rag_coordinator
 from app.services.file_manager import get_file_manager
 from app.services.question_logger import get_question_logger
+from app.services.persistent_cache import get_persistent_cache_manager
 from app.core.security import verify_token
 from app.core.config import settings
 from app.core.directories import get_directory_manager
@@ -47,13 +48,13 @@ async def health_check():
         )
 
 
-@router.post("/hackrx/run", response_model=SimpleQueryResponse)
+@router.post("/query", response_model=SimpleQueryResponse)
 async def process_queries(
     request: QueryRequest,
     token: str = Depends(verify_token)
 ):
     """
-    Complete RAG endpoint with clean architecture
+    Complete RAG document query endpoint
     
     This endpoint:
     1. Processes the document (with caching to prevent duplicates)
@@ -153,7 +154,7 @@ async def process_queries(
             # Modify questions to include the URL for proper web scraping detection
             questions_to_process = [f"{q} {api_url}" for q in request.questions]
         
-        # Process questions individually for reliable challenge detection and consistent results
+        # Process questions individually for reliable and consistent results
         rag_responses = []
         for i, question in enumerate(questions_to_process):
             debug_print(f"Processing question {i+1}/{len(questions_to_process)}: {question[:50]}...")
@@ -555,6 +556,110 @@ async def get_file_manager_stats(token: str = Depends(verify_token)):
         raise HTTPException(
             status_code=500,
             detail=f"File manager stats collection failed: {str(e)}"
+        )
+
+
+@router.get("/debug/cache-stats")
+async def get_cache_statistics(token: str = Depends(verify_token)):
+    """Get comprehensive caching statistics"""
+    try:
+        rag_coordinator = get_rag_coordinator()
+        persistent_cache = get_persistent_cache_manager()
+        
+        # Get stats from all cache layers
+        in_memory_stats = rag_coordinator.cache_manager.get_cache_stats()
+        persistent_stats = persistent_cache.get_cache_stats()
+        
+        return {
+            "cache_overview": {
+                "layers": ["in_memory_ttl", "in_memory_lru", "persistent_disk"],
+                "total_cache_types": 5,
+                "cache_enabled": {
+                    "result_caching": settings.enable_result_caching,
+                    "embedding_caching": settings.enable_embedding_cache,
+                    "reranker_caching": settings.enable_reranker_cache
+                }
+            },
+            "in_memory_cache": in_memory_stats,
+            "persistent_cache": persistent_stats,
+            "performance_impact": {
+                "query_embedding_cache": "CRITICAL - Saves 200-500ms per query",
+                "document_processing_cache": "HIGH - Saves 2-10s per document", 
+                "query_result_cache": "MEDIUM - Saves 100-300ms per duplicate query",
+                "persistent_benefits": "Survives container restarts, reduced cold start time"
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Cache stats collection failed: {str(e)}"
+        )
+
+
+@router.post("/debug/cache-cleanup")
+async def cleanup_caches(
+    cache_type: str = "expired_only",
+    token: str = Depends(verify_token)
+):
+    """Cleanup cache entries (expired_only, all, or specific type)"""
+    try:
+        rag_coordinator = get_rag_coordinator()
+        persistent_cache = get_persistent_cache_manager()
+        
+        results = {}
+        
+        if cache_type == "expired_only":
+            # Clean up only expired entries
+            in_memory_cleaned = rag_coordinator.cache_manager.cleanup_expired_entries()
+            persistent_cleaned = persistent_cache.cleanup_expired()
+            
+            results = {
+                "operation": "cleanup_expired",
+                "in_memory_cleaned": in_memory_cleaned,
+                "persistent_cleaned": persistent_cleaned,
+                "message": "Cleaned up expired cache entries only"
+            }
+            
+        elif cache_type == "all":
+            # Clear all caches
+            in_memory_cleared = rag_coordinator.cache_manager.clear_cache("all")
+            persistent_cleared = persistent_cache.clear_cache()
+            
+            results = {
+                "operation": "clear_all",
+                "in_memory_cleared": in_memory_cleared,
+                "persistent_cleared": persistent_cleared,
+                "message": "All cache entries cleared"
+            }
+            
+        else:
+            # Clear specific cache type
+            valid_types = ["query", "embedding", "query_embedding", "reranker", "answer"]
+            if cache_type not in valid_types:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid cache type. Valid types: {valid_types}"
+                )
+            
+            in_memory_cleared = rag_coordinator.cache_manager.clear_cache(cache_type)
+            persistent_cleared = persistent_cache.clear_cache(cache_type)
+            
+            results = {
+                "operation": f"clear_{cache_type}",
+                "in_memory_cleared": in_memory_cleared,
+                "persistent_cleared": persistent_cleared,
+                "message": f"Cleared {cache_type} cache entries"
+            }
+        
+        return results
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Cache cleanup failed: {str(e)}"
         )
 
 

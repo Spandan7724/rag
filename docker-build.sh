@@ -1,5 +1,5 @@
 #!/bin/bash
-# Docker build script for Bajaj RAG System
+# Docker build script for RAG System
 
 set -e
 
@@ -9,11 +9,11 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}Building Bajaj RAG System Docker image...${NC}"
+echo -e "${GREEN}Building RAG System Docker image...${NC}"
 
 # Build the Docker image
 echo -e "${YELLOW}Step 1: Building production image...${NC}"
-docker build -t bajaj-rag:latest .
+docker build -t rag:latest .
 
 # Verify the build
 if [ $? -eq 0 ]; then
@@ -21,10 +21,10 @@ if [ $? -eq 0 ]; then
     
     # Display image information
     echo -e "${YELLOW}Image information:${NC}"
-    docker images bajaj-rag:latest
+    docker images rag:latest
     
     echo -e "${YELLOW}To run the container:${NC}"
-    echo "docker run -d -p 8000:8000 --name bajaj-rag bajaj-rag:latest"
+    echo "docker run -d -p 8000:8000 --name rag rag:latest"
     echo ""
     echo -e "${YELLOW}Or use docker-compose:${NC}"
     echo "docker-compose up -d"

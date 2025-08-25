@@ -6,20 +6,15 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 class QueryRequest(BaseModel):
-    """Request model for document query processing with query transformation support"""
+    """Request model for document query processing"""
     documents: str  # Accept HTTP URLs, file:// paths, or upload file IDs
     questions: List[str]
-    enable_query_transformation: Optional[bool] = None  # Override global transformation setting
-    use_universal_solver: Optional[bool] = False  # Enable Universal LLM Solver for pure LLM-driven reasoning
     
     @field_validator('documents')
     @classmethod
     def validate_documents(cls, v: str) -> str:
-        """Validate that documents is either a valid URL, file path, upload file ID, or special web scraping placeholder"""
-        # Special case for web scraping requests without documents
-        if v == 'web-scraping://no-document':
-            return v
-        elif v.startswith('file://'):
+        """Validate that documents is either a valid URL, file path, or upload file ID"""
+        if v.startswith('file://'):
             # For file:// URLs, just ensure the path exists and is readable
             file_path = v[7:]  # Remove 'file://' prefix
             if not file_path:
@@ -37,15 +32,15 @@ class QueryRequest(BaseModel):
                 HttpUrl(v)
                 return v
             except Exception:
-                raise ValueError('documents must be a valid HTTP URL, file:// path, upload:// file ID, or web-scraping://no-document for web scraping requests')
+                raise ValueError('documents must be a valid HTTP URL, file:// path, or upload:// file ID')
     
     class Config:
         json_schema_extra = {
             "example": {
                 "documents": "https://example.com/document.pdf",
                 "questions": [
-                    "What is the grace period for premium payment?",
-                    "What are the coverage limits?"
+                    "What are the key requirements mentioned?",
+                    "What are the specified limits or constraints?"
                 ]
             },
             "examples": {
@@ -88,8 +83,8 @@ class QueryResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "answers": [
-                    "The grace period for premium payment is 30 days.",
-                    "The coverage limit is $100,000 per incident."
+                    "The submission deadline is 30 days from notification.",
+                    "The maximum limit is $100,000 per request."
                 ],
                 "sources": [
                     [
@@ -97,10 +92,10 @@ class QueryResponse(BaseModel):
                             "number": 1,
                             "doc_id": "abc123",
                             "page": 5,
-                            "heading": "Premium Payment Terms",
+                            "heading": "Submission Requirements",
                             "section": "2.1",
                             "similarity_score": 0.92,
-                            "text_preview": "Grace period provisions...",
+                            "text_preview": "Deadline provisions...",
                             "chunk_type": "text"
                         }
                     ],
@@ -109,10 +104,10 @@ class QueryResponse(BaseModel):
                             "number": 1,
                             "doc_id": "abc123",
                             "page": 12,
-                            "heading": "Coverage Limits",
+                            "heading": "Specifications",
                             "section": "4.3",
                             "similarity_score": 0.89,
-                            "text_preview": "Maximum coverage amounts...",
+                            "text_preview": "Maximum amounts allowed...",
                             "chunk_type": "table"
                         }
                     ]
@@ -173,7 +168,7 @@ class UploadResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "file_id": "abc123def456ghi789",
-                "original_filename": "policy_document.pdf",
+                "original_filename": "sample_document.pdf",
                 "file_size": 2048576,
                 "content_type": "application/pdf",
                 "uploaded_at": "2025-01-15T10:30:00",
@@ -184,19 +179,17 @@ class UploadResponse(BaseModel):
 
 
 class UploadRequest(BaseModel):
-    """Request model for file upload with immediate processing and query transformation support"""
+    """Request model for file upload with immediate processing"""
     questions: List[str]
-    enable_query_transformation: Optional[bool] = None  # Override global transformation setting
     
     class Config:
         json_schema_extra = {
             "example": {
                 "questions": [
-                    "What is the grace period for premium payment?",
-                    "What are the coverage limits?",
+                    "What are the submission deadlines?",
+                    "What are the specified limits?",
                     "What conditions are excluded?"
-                ],
-                "enable_query_transformation": True
+                ]
             }
         }
 
