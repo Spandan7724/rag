@@ -157,10 +157,6 @@ The system leverages GitHub Copilot's OpenAI-compatible API endpoint (`https://a
    export COPILOT_ACCESS_TOKEN=your_copilot_token_from_apps_json
    ```
 
-**Available Copilot Models:**
-- `claude-sonnet-4` - Latest Claude Sonnet 4 model (via Copilot)
-- `gpt-4.1-2025-04-14` - Latest GPT-4.1 model (via Copilot)
-- `gpt-4o` - GPT-4 Omni model
 
 #### OpenAI Direct API
 
@@ -172,14 +168,7 @@ export LLM_MODEL=gpt-4o  # or gpt-4o-mini, gpt-4-turbo, etc.
 export OPENAI_API_KEY=your_openai_api_key_here
 ```
 
-**Available OpenAI Models:**
-- `gpt-4o` - Latest GPT-4 Omni model
-- `gpt-4o-mini` - Faster, cost-effective GPT-4 Omni
-- `gpt-4-turbo` - GPT-4 Turbo with improved performance
-- `gpt-4` - Standard GPT-4 model
-- `gpt-3.5-turbo` - Cost-effective for simpler tasks
-- `o1-preview` - Advanced reasoning model
-- `o1-mini` - Faster reasoning model
+
 
 ### Environment Variables
 
@@ -310,28 +299,6 @@ docker run -d \
   -p 8000:8000 \
   -e CUDA_VISIBLE_DEVICES=0 \
   rag:latest
-```
-
-##  Development
-
-### Project Structure
-```
-rag/
-├── app/
-│   ├── api/                 # FastAPI routes
-│   ├── core/                # Configuration and security
-│   ├── models/              # Pydantic models
-│   ├── services/            # Core business logic
-│   │   ├── extractors/      # Document format extractors
-│   │   ├── rag_coordinator.py
-│   │   ├── document_processor.py
-│   │   └── ...
-│   └── utils/               # Utility functions
-├── data/                    # Persistent data storage
-├── docker-compose.yml       # Docker deployment
-├── Dockerfile              # Multi-stage container build
-├── pyproject.toml          # Python dependencies
-└── run.py                  # Application entry point
 ```
 
 ### Development Commands
